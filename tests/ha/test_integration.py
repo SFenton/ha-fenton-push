@@ -11,6 +11,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_mock_service
 
@@ -157,6 +158,13 @@ async def test_daily_limit(hass: HomeAssistant, configured, hass_client_no_auth)
     assert "rateLimits" in await limited.json()
 
 
+def targets(calls, since: int = 0) -> list[str]:
+    """Webhook ids reached by the mobile_app calls after ``since``: one device per call."""
+    sent = [call.data["target"] for call in calls[since:]]
+    assert all(len(target) == 1 for target in sent)
+    return [target[0] for target in sent]
+
+
 async def test_person_targets(hass: HomeAssistant, configured) -> None:
     calls = async_mock_service(hass, "notify", "mobile_app")
     for service in ("fenton", "fenton_stephen", "fenton_stephanie", "fenton_everyone"):
@@ -166,20 +174,38 @@ async def test_person_targets(hass: HomeAssistant, configured) -> None:
 
     await hass.services.async_call("notify", "fenton_stephen", {"message": "Hi", "title": "T", "data": {"tag": "x"}},
                                    blocking=True)
-    assert calls[-1].data == {"message": "Hi", "title": "T", "data": {"tag": "x"},
-                              "target": ["hook-stephen-iphone", "hook-stephen-ipad"]}
+    assert targets(calls) == ["hook-stephen-iphone", "hook-stephen-ipad"]
+    assert calls[-1].data == {"message": "Hi", "title": "T", "data": {"tag": "x"}, "target": ["hook-stephen-ipad"]}
 
+    count = len(calls)
     await hass.services.async_call("notify", "fenton_stephen",
                                    {"message": "Phones", "data": {"fenton": {"devices": ["phone"]}}}, blocking=True)
-    assert calls[-1].data["target"] == ["hook-stephen-iphone"]
+    assert targets(calls, count) == ["hook-stephen-iphone"]
 
+    count = len(calls)
     await hass.services.async_call("notify", "fenton", {"message": "All"}, blocking=True)
-    assert sorted(calls[-1].data["target"]) == ["hook-stephanie-iphone", "hook-stephen-ipad", "hook-stephen-iphone"]
+    assert sorted(targets(calls, count)) == ["hook-stephanie-iphone", "hook-stephen-ipad", "hook-stephen-iphone"]
 
     count = len(calls)
     await hass.services.async_call("notify", "fenton_stephanie",
                                    {"message": "Tablets", "data": {"fenton": {"devices": "tablet"}}}, blocking=True)
     assert len(calls) == count  # Stephanie has no tablet: nothing sent, no error.
+
+
+async def test_unreachable_device_doesnt_block_the_rest(hass: HomeAssistant, configured, caplog) -> None:
+    """mobile_app raises for a websocket-only device that isn't connected; the person's other devices still get it."""
+    reached: list[str] = []
+
+    async def mobile_app(call) -> None:
+        target = call.data["target"][0]
+        if target == "hook-stephen-iphone":
+            raise HomeAssistantError("Device not connected to local push notifications")
+        reached.append(target)
+
+    hass.services.async_register("notify", "mobile_app", mobile_app)
+    await hass.services.async_call("notify", "fenton_stephen", {"message": "Hi"}, blocking=True)
+    assert reached == ["hook-stephen-ipad"]
+    assert "Couldn't notify hook-stephen-iphone · Fenton" in caplog.text
 
 
 async def test_unload(hass: HomeAssistant, configured, hass_client_no_auth) -> None:
