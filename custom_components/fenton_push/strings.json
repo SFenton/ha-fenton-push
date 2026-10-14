@@ -1,0 +1,46 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect Apple Push",
+        "description": "Create an APNs key in your Apple Developer account (Certificates, Identifiers & Profiles → Keys, with Apple Push Notifications enabled), then paste the whole .p8 file here. The key is checked with Apple before it is saved.",
+        "data": {
+          "key": "APNs key (.p8 contents)",
+          "key_id": "Key ID",
+          "team_id": "Team ID",
+          "bundle_id": "App bundle ID"
+        },
+        "data_description": {
+          "key": "Everything from -----BEGIN PRIVATE KEY----- to -----END PRIVATE KEY-----.",
+          "key_id": "The 10-character ID shown next to the key.",
+          "team_id": "The 10-character ID in the top right of your developer account.",
+          "bundle_id": "Leave as com.sfenton.home unless the app's bundle ID changes."
+        }
+      }
+    },
+    "error": {
+      "invalid_key": "That isn't an APNs key. Paste the full contents of the .p8 file.",
+      "key_rejected": "Apple rejected the key. Check the Key ID and Team ID, and that the key has Apple Push Notifications enabled.",
+      "bundle_rejected": "Apple accepted the key but not for this bundle ID. Check that push is enabled for the app ID.",
+      "cannot_connect": "Couldn't reach Apple's push service. Check Home Assistant's internet connection and try again."
+    },
+    "abort": {
+      "already_configured": "Push is already set up for this app."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Fenton Home Push options",
+        "data": {
+          "critical_alerts": "Send critical alerts",
+          "push_base_url": "Push address base URL"
+        },
+        "data_description": {
+          "critical_alerts": "Turn on only after Apple grants the app the Critical Alerts entitlement. Until then, critical notifications arrive as time-sensitive.",
+          "push_base_url": "Where Home Assistant can reach itself, such as http://127.0.0.1:8123. Leave empty to use the internal URL. The app picks up a change the next time it opens."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "Simulator Target Bundle": "com.sfenton.home",
+  "aps": {
+    "alert": {
+      "body": "The front door is unlocked and nobody is home. Lock it from here or open Security.",
+      "title": "Front Door · Unlocked While Away"
+    },
+    "sound": "default",
+    "interruption-level": "time-sensitive",
+    "thread-id": "front-door-unsecured",
+    "category": "fenton.dynamic",
+    "mutable-content": 1
+  },
+  "fenton": {
+    "v": 1,
+    "tag": "sfenton-front-door-unsecured-42",
+    "group": "front-door-unsecured",
+    "url": "/sfenton-react-dash/home?path=security",
+    "actions": [
+      {
+        "action": "FRONT_DOOR_LOCK_42",
+        "title": "Confirm: Lock Front Door",
+        "icon": "sfsymbols:lock",
+        "authenticationRequired": true,
+        "activationMode": "background"
+      },
+      {
+        "action": "URI",
+        "title": "Open Security",
+        "uri": "/sfenton-react-dash/home?path=security",
+        "icon": "sfsymbols:shield"
+      }
+    ]
+  }
+}

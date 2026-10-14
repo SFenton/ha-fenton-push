@@ -1,0 +1,11 @@
+{
+  "Simulator Target Bundle": "com.sfenton.home",
+  "aps": {
+    "content-available": 1
+  },
+  "fenton": {
+    "v": 1,
+    "command": "clear_notification",
+    "tag": "sfenton-front-door-unsecured-42"
+  }
+}
