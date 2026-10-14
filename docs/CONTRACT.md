@@ -11,8 +11,9 @@ How the Fenton Home iOS app (bundle `com.sfenton.home`) and this integration tal
 {"available": true, "push_url": "http://192.168.1.20:8123/api/fenton_push/apns", "bundle_id": "com.sfenton.home", "critical_alerts": false}
 ```
 
-`available` is false (and `push_url` null) when the integration isn't set up; the app then registers without
-`push_url`/`push_token` (websocket push only) and retries the config on the next launch.
+`available` is false (and `push_url` null) when the integration is installed but not set up; a 404 means it isn't
+installed. In both cases the app doesn't register at all, so no stray Mobile App devices appear in Home Assistant, and it
+asks again on the next launch.
 
 ## 2. Register as a mobile device
 
