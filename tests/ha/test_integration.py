@@ -9,11 +9,13 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from homeassistant import config_entries
+from homeassistant.components.notify import BaseNotificationService
+from homeassistant.components.notify.legacy import NOTIFY_SERVICES
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.setup import async_setup_component
-from pytest_homeassistant_custom_component.common import MockConfigEntry, async_mock_service
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.fenton_push.apns import APNsError
 from custom_components.fenton_push.const import (
@@ -58,15 +60,56 @@ async def test_flow_checks_the_key_with_apple(hass: HomeAssistant) -> None:
     assert result["data"] == {**DATA, CONF_KEY: PEM.strip()}
 
 
+PUSH_URL = "http://127.0.0.1:8123/api/fenton_push/apns"
+
+
+class MobileAppStandIn(BaseNotificationService):
+    """``mobile_app``'s notify service, which can't load here (it pulls in cloud, assist and their libraries).
+
+    Same targets (device name to webhook id, for devices that can push) and the same refusal of a websocket-only
+    device that isn't connected; Home Assistant's own legacy notify code registers its actions, so they're named
+    exactly as on a real install: ``notify.mobile_app_<device name>`` and no ``notify.mobile_app``.
+    """
+
+    def __init__(self) -> None:
+        self.sent: list[dict] = []
+
+    def _registrations(self) -> dict[str, dict]:
+        return {e.data["webhook_id"]: dict(e.data) for e in self.hass.config_entries.async_entries("mobile_app")}
+
+    @property
+    def targets(self) -> dict[str, str]:
+        return {data["device_name"]: webhook_id for webhook_id, data in self._registrations().items()
+                if "push_url" in data["app_data"] or data["app_data"].get("push_websocket_channel")}
+
+    async def async_send_message(self, message: str = "", **kwargs) -> None:
+        for target in kwargs.get("target") or self.targets.values():
+            if "push_url" not in self._registrations()[target]["app_data"]:
+                raise HomeAssistantError("Device not connected to local push notifications")
+            self.sent.append({"target": target, "message": message,
+                              **{k: kwargs[k] for k in ("title", "data") if kwargs.get(k) is not None}})
+
+
+async def mobile_app_actions(hass: HomeAssistant) -> MobileAppStandIn:
+    """Register ``mobile_app``'s notify actions the way Home Assistant does for a discovered platform."""
+    assert await async_setup_component(hass, "notify", {})
+    service = MobileAppStandIn()
+    await service.async_setup(hass, "notify", "mobile_app")
+    await service.async_register_services()
+    hass.data[NOTIFY_SERVICES].setdefault("mobile_app", []).append(service)
+    return service
+
+
 def mobile_app_entry(hass: HomeAssistant, webhook_id: str, user_id: str, *, model: str = "iPhone19,2",
                      app_id: str = "com.sfenton.home", app_data: dict | None = None) -> MockConfigEntry:
-    """A mobile_app registration as Home Assistant stores it (the integration itself isn't loaded)."""
+    """A mobile_app registration as Home Assistant stores it (mobile_app itself isn't loaded)."""
     if app_data is None:
-        app_data = {"push_url": "http://127.0.0.1:8123/api/fenton_push/apns", "push_token": f"tok-{webhook_id}",
-                    "apns_environment": "sandbox"}
+        app_data = {"push_url": PUSH_URL, "push_token": f"tok-{webhook_id}", "apns_environment": "sandbox"}
     entry = MockConfigEntry(domain="mobile_app", unique_id=webhook_id, data={
-        "webhook_id": webhook_id, "user_id": user_id, "app_id": app_id, "device_name": f"{webhook_id} · Fenton",
-        "model": model, "manufacturer": "Apple", "app_version": "0.1.0 (1)", "app_data": app_data,
+        "webhook_id": webhook_id, "user_id": user_id, "app_id": app_id, "app_name": "Fenton Home",
+        "app_version": "0.1.0 (1)", "device_id": f"device-{webhook_id}", "device_name": f"{webhook_id} · Fenton",
+        "manufacturer": "Apple", "model": model, "os_name": "iOS", "os_version": "27.0", "supports_encryption": False,
+        "secret": None, "app_data": app_data,
     })
     entry.add_to_hass(hass)
     return entry
@@ -84,6 +127,7 @@ async def configured(hass: HomeAssistant):
     mobile_app_entry(hass, "hook-stephanie-iphone", STEPHANIE)
     mobile_app_entry(hass, "hook-stephen-signed-out", STEPHEN, app_data={})
     mobile_app_entry(hass, "hook-companion", STEPHEN, app_id="io.robbie.HomeAssistant")
+    await mobile_app_actions(hass)
     entry = MockConfigEntry(domain=DOMAIN, data=DATA, unique_id="com.sfenton.home")
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
@@ -158,54 +202,64 @@ async def test_daily_limit(hass: HomeAssistant, configured, hass_client_no_auth)
     assert "rateLimits" in await limited.json()
 
 
-def targets(calls, since: int = 0) -> list[str]:
-    """Webhook ids reached by the mobile_app calls after ``since``: one device per call."""
-    sent = [call.data["target"] for call in calls[since:]]
-    assert all(len(target) == 1 for target in sent)
-    return [target[0] for target in sent]
+def mobile_app(hass: HomeAssistant) -> MobileAppStandIn:
+    return hass.data[NOTIFY_SERVICES]["mobile_app"][0]
+
+
+def reached(service: MobileAppStandIn, since: int = 0) -> list[str]:
+    return [sent["target"] for sent in service.sent[since:]]
 
 
 async def test_person_targets(hass: HomeAssistant, configured) -> None:
-    calls = async_mock_service(hass, "notify", "mobile_app")
-    for service in ("fenton", "fenton_stephen", "fenton_stephanie", "fenton_everyone"):
-        assert hass.services.has_service("notify", service), service
+    service = mobile_app(hass)
+    for name in ("fenton", "fenton_stephen", "fenton_stephanie", "fenton_everyone"):
+        assert hass.services.has_service("notify", name), name
     # A person without a user can't own a device, so has no target.
     assert not hass.services.has_service("notify", "fenton_guest")
+    # Only per-device actions: there is no notify.mobile_app to call.
+    assert not hass.services.has_service("notify", "mobile_app")
+    assert hass.services.has_service("notify", "mobile_app_hook_stephen_iphone_fenton")
 
     await hass.services.async_call("notify", "fenton_stephen", {"message": "Hi", "title": "T", "data": {"tag": "x"}},
                                    blocking=True)
-    assert targets(calls) == ["hook-stephen-iphone", "hook-stephen-ipad"]
-    assert calls[-1].data == {"message": "Hi", "title": "T", "data": {"tag": "x"}, "target": ["hook-stephen-ipad"]}
+    assert reached(service) == ["hook-stephen-iphone", "hook-stephen-ipad"]
+    assert service.sent[-1] == {"target": "hook-stephen-ipad", "message": "Hi", "title": "T", "data": {"tag": "x"}}
 
-    count = len(calls)
+    count = len(service.sent)
     await hass.services.async_call("notify", "fenton_stephen",
                                    {"message": "Phones", "data": {"fenton": {"devices": ["phone"]}}}, blocking=True)
-    assert targets(calls, count) == ["hook-stephen-iphone"]
+    assert reached(service, count) == ["hook-stephen-iphone"]
 
-    count = len(calls)
+    count = len(service.sent)
     await hass.services.async_call("notify", "fenton", {"message": "All"}, blocking=True)
-    assert sorted(targets(calls, count)) == ["hook-stephanie-iphone", "hook-stephen-ipad", "hook-stephen-iphone"]
+    assert sorted(reached(service, count)) == ["hook-stephanie-iphone", "hook-stephen-ipad", "hook-stephen-iphone"]
 
-    count = len(calls)
+    count = len(service.sent)
     await hass.services.async_call("notify", "fenton_stephanie",
                                    {"message": "Tablets", "data": {"fenton": {"devices": "tablet"}}}, blocking=True)
-    assert len(calls) == count  # Stephanie has no tablet: nothing sent, no error.
+    assert len(service.sent) == count  # Stephanie has no tablet: nothing sent, no error.
 
 
 async def test_unreachable_device_doesnt_block_the_rest(hass: HomeAssistant, configured, caplog) -> None:
     """mobile_app raises for a websocket-only device that isn't connected; the person's other devices still get it."""
-    reached: list[str] = []
-
-    async def mobile_app(call) -> None:
-        target = call.data["target"][0]
-        if target == "hook-stephen-iphone":
-            raise HomeAssistantError("Device not connected to local push notifications")
-        reached.append(target)
-
-    hass.services.async_register("notify", "mobile_app", mobile_app)
+    mobile_app_entry(hass, "hook-stephen-websocket", STEPHEN, app_data={"push_websocket_channel": True})
+    service = mobile_app(hass)
+    await service.async_register_services()
     await hass.services.async_call("notify", "fenton_stephen", {"message": "Hi"}, blocking=True)
-    assert reached == ["hook-stephen-ipad"]
-    assert "Couldn't notify hook-stephen-iphone · Fenton" in caplog.text
+    assert reached(service) == ["hook-stephen-iphone", "hook-stephen-ipad"]
+    assert "Couldn't notify hook-stephen-websocket · Fenton: Device not connected" in caplog.text
+
+
+async def test_device_sharing_a_name(hass: HomeAssistant, configured, caplog) -> None:
+    """Two devices with one name share one mobile_app action, which reaches the newer; the older is logged."""
+    mobile_app_entry(hass, "hook-stephen-old-iphone", STEPHEN)
+    hass.config_entries.async_update_entry(hass.config_entries.async_entries("mobile_app")[-1], data={
+        **hass.config_entries.async_entries("mobile_app")[-1].data, "device_name": "hook-stephen-iphone · Fenton"})
+    service = mobile_app(hass)
+    await service.async_register_services()
+    await hass.services.async_call("notify", "fenton_stephen", {"message": "Hi"}, blocking=True)
+    assert len(service.sent) == 2
+    assert "has no notify action for it" in caplog.text
 
 
 async def test_unload(hass: HomeAssistant, configured, hass_client_no_auth) -> None:

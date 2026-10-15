@@ -1,10 +1,12 @@
 """Person targets: ``notify.fenton_<name>`` sends to every device where that person is signed in to Fenton Home.
 
-Each matching device gets its own ``notify.mobile_app`` call, so ``mobile_app`` still decides between its
-websocket channel and our ``push_url`` and handles Live Activity tokens. One call per device because
-``mobile_app`` raises on a websocket-only device that isn't connected (a phone that declined notifications) and
-stops there; that device is logged and the rest still get the notification. The notification data is passed
-through untouched; ``data.fenton.devices`` (``phone``, ``tablet``, ``watch``) narrows the devices.
+Each matching device is reached through its own ``mobile_app`` action (``notify.mobile_app_<device name>``), so
+``mobile_app`` still decides between its websocket channel and our ``push_url`` and handles Live Activity tokens.
+``mobile_app`` registers no shared action of its own (discovery gives it no name, so its base action is the generic
+``notify.notify``, which another integration may own). One call per device also means a websocket-only device that
+isn't connected, which ``mobile_app`` raises for, is logged and the rest still get the notification. The
+notification data is passed through untouched; ``data.fenton.devices`` (``phone``, ``tablet``, ``watch``) narrows
+the devices.
 """
 
 from __future__ import annotations
@@ -16,11 +18,40 @@ from homeassistant.components.notify import ATTR_DATA, ATTR_TARGET, ATTR_TITLE, 
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
+from homeassistant.util import slugify
 
 from .const import DOMAIN, MOBILE_APP, TARGET_EVERYONE
 from .targets import DEVICE_KINDS, Device, people, resolve, target_names
 
+try:
+    from homeassistant.components.notify.legacy import NOTIFY_SERVICES
+except ImportError:  # Moved or renamed in a later Home Assistant; fall back to the action naming rule.
+    NOTIFY_SERVICES = None
+
 _LOGGER = logging.getLogger(__name__)
+
+
+def _device_actions(hass: HomeAssistant) -> dict[str, str] | None:
+    """Webhook id to ``mobile_app``'s action for that device, as ``mobile_app`` registered them.
+
+    ``None`` when Home Assistant doesn't expose them; two devices with the same name share one action, which
+    reaches only the newer, so the older one has none here.
+    """
+    if NOTIFY_SERVICES is None or (services := hass.data.get(NOTIFY_SERVICES)) is None:
+        return None
+    actions: dict[str, str] = {}
+    for service in services.get(MOBILE_APP, []):
+        for action, webhook_id in (getattr(service, "registered_targets", None) or {}).items():
+            actions[webhook_id] = action
+    return actions
+
+
+def _device_action(hass: HomeAssistant, actions: dict[str, str] | None, device: Device) -> str | None:
+    if actions is not None:
+        action = actions.get(device.webhook_id)
+    else:
+        action = slugify(f"{MOBILE_APP}_{device.name}")
+    return action if action and hass.services.has_service("notify", action) else None
 
 
 async def async_get_service(hass: HomeAssistant, config: ConfigType,
@@ -79,9 +110,13 @@ class FentonNotificationService(BaseNotificationService):
             service_data[ATTR_TITLE] = title
         if data is not None:
             service_data[ATTR_DATA] = data
-        for webhook_id, device in devices.items():
+        actions = _device_actions(self.hass)
+        for device in devices.values():
+            if (action := _device_action(self.hass, actions, device)) is None:
+                _LOGGER.warning("Couldn't notify %s: Home Assistant has no notify action for it (does another device "
+                                "have the same name?)", device.name)
+                continue
             try:
-                await self.hass.services.async_call("notify", MOBILE_APP, {**service_data, ATTR_TARGET: [webhook_id]},
-                                                    blocking=True)
+                await self.hass.services.async_call("notify", action, service_data, blocking=True)
             except HomeAssistantError as err:
                 _LOGGER.warning("Couldn't notify %s: %s", device.name, err)
