@@ -14,7 +14,7 @@ How the Fenton Home iOS app (bundle `com.sfenton.home`) and this integration tal
 A 404 means the integration isn't installed: the app doesn't register at all, so no stray Mobile App device appears
 in Home Assistant, and it asks again on the next launch. `available` is false (and `push_url` null) when it is installed
 but not set up, or when `bundle_id` isn't the app's: the app then registers without `push_url`/`push_token` (websocket
-push only) and adds them on a later `update_registration`. Person targets skip such a device while it isn't connected.
+push only) and adds them on a later `update_registration`. Until the app connects, a notification to such a device is logged and skipped; the person's other devices still get it.
 
 ## 2. Register as a mobile device
 
