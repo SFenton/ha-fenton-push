@@ -1,0 +1,32 @@
+{
+  "Simulator Target Bundle": "com.sfenton.home",
+  "aps": {
+    "alert": {
+      "body": "Empty the dishwasher is past due.",
+      "title": "Chore past due"
+    },
+    "sound": "default",
+    "interruption-level": "active",
+    "category": "fenton.dynamic",
+    "mutable-content": 1
+  },
+  "fenton": {
+    "v": 1,
+    "tag": "donetick_task_17",
+    "url": "/sfenton-react-dash/home?path=chores",
+    "actions": [
+      {
+        "action": "DONETICK_COMPLETE_17",
+        "title": "Complete"
+      },
+      {
+        "action": "DONETICK_SNOOZE_1H_17",
+        "title": "Snooze 1 hour"
+      },
+      {
+        "action": "DONETICK_SNOOZE_1D_17",
+        "title": "Snooze 1 day"
+      }
+    ]
+  }
+}

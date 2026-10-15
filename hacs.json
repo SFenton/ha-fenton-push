@@ -1,0 +1,7 @@
+{
+  "name": "Fenton Home Push",
+  "render_readme": true,
+  "homeassistant": "2026.2.0",
+  "content_in_root": false,
+  "zip_release": false
+}

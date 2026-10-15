@@ -1,0 +1,26 @@
+{
+  "Simulator Target Bundle": "com.sfenton.home",
+  "aps": {
+    "alert": {
+      "body": "Someone is at the front door.",
+      "title": "Doorbell"
+    },
+    "sound": "default",
+    "interruption-level": "time-sensitive",
+    "category": "fenton.dynamic",
+    "mutable-content": 1
+  },
+  "fenton": {
+    "v": 1,
+    "tag": "doorbell",
+    "url": "/sfenton-react-dash/home?path=security#camera-front-door",
+    "actions": [
+      {
+        "action": "URI",
+        "title": "Open Camera",
+        "uri": "/sfenton-react-dash/home?path=security#camera-front-door"
+      }
+    ],
+    "entity_id": "camera.front_door_camera"
+  }
+}
