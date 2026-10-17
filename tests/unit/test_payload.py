@@ -124,23 +124,6 @@ def test_invalid_bodies() -> None:
         build({"message": "x", "data": "nope"}, critical_enabled=False)
 
 
-def test_live_activity_start_update_end() -> None:
-    body = {"message": "Kitchen", "title": "Vacuum", "live_activity_token": "b" * 64,
-            "data": {"tag": "vacuum-run", "live_update": True, "event": "start", "progress": 2, "progress_max": 5}}
-    start = build(body, critical_enabled=False, now=1000)
-    assert start.push_type == "liveactivity" and start.token_key == "live_activity_token"
-    assert start.headers("com.sfenton.home")["apns-topic"] == "com.sfenton.home.push-type.liveactivity"
-    aps = start.payload["aps"]
-    assert aps["event"] == "start" and aps["timestamp"] == 1000
-    assert aps["attributes"] == {"tag": "vacuum-run", "title": "Vacuum"}
-    assert aps["content-state"] == {"message": "Kitchen", "title": "Vacuum", "progress": 2, "progress_max": 5}
-    body["data"]["event"] = "end"
-    assert build(body, critical_enabled=False, now=1000).payload["aps"]["dismissal-date"] == 1000
-    body["data"].pop("tag")
-    with pytest.raises(PayloadError):
-        build(body, critical_enabled=False)
-
-
 def test_headers() -> None:
     headers = build(samples.FRONT_DOOR_UNSECURED, critical_enabled=False).headers("com.sfenton.home")
     assert headers == {"apns-push-type": "alert", "apns-priority": "10", "apns-topic": "com.sfenton.home",
@@ -149,7 +132,7 @@ def test_headers() -> None:
 
 def fixture_payload(name: str, body: dict, critical: bool) -> dict:
     """What ``tests/fixtures/<name>.apns`` holds: the payload plus simctl's target bundle."""
-    payload = copy.deepcopy(build(body, critical_enabled=critical).payload)
+    payload = copy.deepcopy(build(body, critical_enabled=critical, now=samples.FIXTURE_NOW).payload)
     return {"Simulator Target Bundle": "com.sfenton.home", **payload}
 
 

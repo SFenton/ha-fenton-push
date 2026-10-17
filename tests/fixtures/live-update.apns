@@ -1,0 +1,55 @@
+{
+  "Simulator Target Bundle": "com.sfenton.home",
+  "aps": {
+    "timestamp": 1792249200,
+    "event": "update",
+    "content-state": {
+      "v": 1,
+      "jobs": [
+        {
+          "id": "dishwasher",
+          "kind": "dishwasher",
+          "title": "Dishwasher",
+          "status": "Eco 50° · Drying",
+          "phase": "running",
+          "symbol": "dishwasher",
+          "tint": "cleaning",
+          "start_ts": 1792241200,
+          "end_ts": 1792251720,
+          "progress": 0.62,
+          "controls": [
+            {
+              "id": "stop",
+              "title": "Stop",
+              "role": "destructive"
+            }
+          ]
+        },
+        {
+          "id": "fan.master",
+          "kind": "bathroom_fan",
+          "title": "Master Bath Fan",
+          "status": "Off in",
+          "phase": "running",
+          "symbol": "fan",
+          "tint": "air",
+          "start_ts": 1792248900,
+          "end_ts": 1792250700,
+          "controls": [
+            {
+              "id": "cancel_timer",
+              "title": "Cancel Timer"
+            }
+          ]
+        }
+      ],
+      "focus": "dishwasher",
+      "url": "/sfenton-react-dash/home?path=kitchen"
+    },
+    "stale-date": 1792251300
+  },
+  "fenton": {
+    "v": 2,
+    "tag": "fenton-home"
+  }
+}

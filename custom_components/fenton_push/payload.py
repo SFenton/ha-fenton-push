@@ -13,7 +13,17 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-#: Bumped when the ``fenton`` block changes shape.
+from .live import (
+    ATTRIBUTES_TYPE,
+    LIVE_CONTRACT_VERSION,
+    MAX_DISMISS_AFTER,
+    default_stale,
+    empty_state,
+    generic_state,
+    home_state,
+)
+
+#: Bumped when the ``fenton`` block changes shape. Live Activity payloads carry ``LIVE_CONTRACT_VERSION`` instead.
 CONTRACT_VERSION = 1
 
 #: APNs refuses larger alert payloads.
@@ -37,7 +47,7 @@ INTERRUPTION_LEVELS = frozenset({"passive", "active", "time-sensitive", "critica
 #: ``data`` keys mapped explicitly; everything else goes to ``fenton.extra`` unless it is Android-only.
 _MAPPED = frozenset({
     "tag", "group", "url", "clickAction", "actions", "entity_id", "image", "video", "attachment",
-    "push", "subtitle", "fenton", "live_update", "event",
+    "push", "subtitle", "fenton", "live_update", "event", "fenton_activity",
 })
 _ANDROID_ONLY = frozenset({
     "sticky", "persistent", "channel", "importance", "ttl", "priority", "vibrationPattern", "ledColor",
@@ -46,12 +56,6 @@ _ANDROID_ONLY = frozenset({
     "media_stream", "tts_text", "command", "intent_action", "intent_uri", "intent_package_name",
     "intent_extras", "intent_type", "intent_class_name", "group_alert_behavior",
 })
-#: Live Activity content-state keys (the companion app's names, so automations port unchanged).
-_LIVE_KEYS = (
-    "critical_text", "progress", "progress_max", "chronometer", "when", "when_relative",
-    "notification_icon", "notification_icon_color", "progress_bar_color", "background_color", "text_color",
-    "progress_bar_direction", "url",
-)
 
 
 class PayloadError(ValueError):
@@ -76,6 +80,9 @@ class ApnsRequest:
     token_key: str = "push_token"
     #: Downgrades and drops, for the log.
     notes: list[str] = field(default_factory=list)
+    #: Nothing is sent to Apple (the view still answers 201): a Live Activity update for a device that has no
+    #: activity token and no push-to-start token must not turn into a banner.
+    dropped: bool = False
 
     def headers(self, bundle_id: str) -> dict[str, str]:
         """APNs request headers (authorization is added by the client)."""
@@ -117,6 +124,9 @@ def build(body: dict[str, Any], *, critical_enabled: bool, now: float | None = N
 
     if body.get("live_activity_token"):
         return _live_activity(body, data, message, tag, now)
+    if data.get("live_update"):
+        return ApnsRequest(push_type="liveactivity", priority=5, payload={}, dropped=True,
+                           notes=["live_update without a live_activity_token dropped (this device cannot show an activity)"])
     if message in COMMANDS:
         return _command(message, tag)
     return _alert(body, data, message, tag, critical_enabled)
@@ -273,33 +283,78 @@ def _actions(value: Any, notes: list[str]) -> list[dict[str, Any]]:
 
 def _live_activity(body: dict[str, Any], data: dict[str, Any], message: str, tag: str | None,
                    now: float | None) -> ApnsRequest:
+    """A Live Activity start, update or end (contract v2, section 6).
+
+    ``mobile_app`` decides the event (start with the push-to-start token, update with the activity's token, end on
+    ``clear_notification``) and posts the token as ``live_activity_token``. The content is the automation's
+    ``fenton_activity`` block when it sent one, else the companion app's ``live_update`` keys as one generic job.
+    """
     if not tag:
         raise PayloadError("tag_required", "Live Activities need a tag")
     timestamp = int(now if now is not None else time.time())
     event = _string(data.get("event")) or "update"
     if event not in ("start", "update", "end"):
         raise PayloadError("invalid_event", f"Unknown Live Activity event {event!r}")
-    state: dict[str, Any] = {"message": message}
-    if title := _string(body.get("title")):
-        state["title"] = title
-    for key in _LIVE_KEYS:
-        if key in data and data[key] is not None:
-            state[key] = data[key]
+    title = _string(body.get("title")) or ""
+    notes: list[str] = []
+
+    stale_ts: int | None = None
+    block = data.get("fenton_activity")
+    if block is not None:
+        try:
+            state, stale_ts = home_state(block, notes)
+        except ValueError as err:
+            raise PayloadError("invalid_activity", str(err)) from err
+    elif event == "end" and message in COMMANDS:
+        state = empty_state()
+    else:
+        state = generic_state(tag, title, message, data, timestamp, notes)
+        if event == "end":
+            for job in state["jobs"]:
+                job["phase"] = "done"
+                job.pop("end_ts", None)
+    kind = "home" if block is not None else "generic"
+
     aps: dict[str, Any] = {"timestamp": timestamp, "event": event, "content-state": state}
+    alerting = False
     if event == "start":
-        aps["attributes-type"] = "FentonActivityAttributes"
-        aps["attributes"] = {"tag": tag, "title": state.get("title", "")}
-        aps["alert"] = {"title": state.get("title", ""), "body": message}
+        aps["attributes-type"] = ATTRIBUTES_TYPE
+        aps["attributes"] = {"tag": tag, "title": title or "Home", "kind": kind}
+        # A start must alert (Apple); this one is quiet: no sound key. iOS 18 hands the new activity's token back.
+        aps["alert"] = {"title": title or "Home", "body": message or title or "Started"}
+        aps["input-push-token"] = 1
+        alerting = True
+    elif data.get("live_alert"):
+        aps["alert"] = {"title": title or "Home", "body": message or title or "Update"}
+        aps["sound"] = "default"
+        alerting = True
     if event == "end":
-        aps["dismissal-date"] = timestamp
+        aps["dismissal-date"] = timestamp + _dismiss_after(data.get("dismiss_after"), notes)
+    else:
+        aps["stale-date"] = stale_ts if stale_ts and stale_ts > timestamp else default_stale(state, timestamp)
     if (score := data.get("relevance_score")) is not None:
         try:
             aps["relevance-score"] = float(score)
         except (TypeError, ValueError):
-            pass
-    payload = {"aps": aps, "fenton": {"v": CONTRACT_VERSION, "tag": tag}}
+            notes.append("non-numeric relevance_score ignored")
+
+    payload = {"aps": aps, "fenton": {"v": LIVE_CONTRACT_VERSION, "tag": tag}}
     if len(_encode(payload)) > MAX_PAYLOAD_BYTES:
         raise PayloadError("payload_too_large", "Live Activity update is larger than Apple's 4 KB limit")
-    silent = bool(data.get("silent"))
-    return ApnsRequest(push_type="liveactivity", priority=5 if silent else 10, payload=payload,
+    # Apple budgets priority-10 pushes: starts, ends, anything that alerts and anything marked urgent use it; the
+    # many progress updates in between go at 5 and may be delayed.
+    priority = 10 if event in ("start", "end") or alerting or data.get("urgent") else 5
+    return ApnsRequest(push_type="liveactivity", priority=priority, payload=payload, notes=notes,
                        topic_suffix=".push-type.liveactivity", token_key="live_activity_token")
+
+
+def _dismiss_after(value: Any, notes: list[str]) -> int:
+    """Seconds an ended activity stays on the Lock Screen: 0 (now) by default, four hours at most."""
+    if value is None:
+        return 0
+    if not isinstance(value, (int, float)) or isinstance(value, bool) or value < 0:
+        notes.append("invalid dismiss_after ignored")
+        return 0
+    if value > MAX_DISMISS_AFTER:
+        notes.append("dismiss_after capped at four hours")
+    return int(min(value, MAX_DISMISS_AFTER))

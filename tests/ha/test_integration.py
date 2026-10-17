@@ -166,6 +166,26 @@ async def test_push_forwards_to_apple(hass: HomeAssistant, configured, hass_clie
     assert request.payload["fenton"]["tag"] == "sfenton-front-door-unsecured-42"
 
 
+async def test_live_activity_goes_to_the_activity_token_and_a_tokenless_update_is_dropped(
+        hass: HomeAssistant, configured, hass_client_no_auth) -> None:
+    client = await hass_client_no_auth()
+    with patch(f"{CLIENT}.send", AsyncMock(return_value=None)) as send:
+        response = await client.post("/api/fenton_push/apns", json=body(sample=samples.LIVE_START))
+        assert response.status == HTTPStatus.CREATED
+        token, request, _ = send.await_args.args
+        assert token == "b" * 64, "a Live Activity goes to the token mobile_app resolved, not the device token"
+        assert request.push_type == "liveactivity" and request.payload["aps"]["event"] == "start"
+
+        # mobile_app found neither an activity token nor a push-to-start token: it sends the notification as an
+        # ordinary one, and Fenton Push must not show it as a banner.
+        tokenless = {k: v for k, v in samples.LIVE_UPDATE.items() if k != "live_activity_token"}
+        send.reset_mock()
+        dropped = await client.post("/api/fenton_push/apns", json=body(sample=tokenless))
+        assert dropped.status == HTTPStatus.CREATED
+        send.assert_not_awaited()
+        assert (await dropped.json())["rateLimits"]["successful"] == 1, "a drop is not a push"
+
+
 async def test_push_refuses_strangers(hass: HomeAssistant, configured, hass_client_no_auth) -> None:
     client = await hass_client_no_auth()
     with patch(f"{CLIENT}.send", AsyncMock(return_value=None)) as send:
