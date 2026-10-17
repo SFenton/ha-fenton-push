@@ -144,6 +144,9 @@ class PushView(HomeAssistantView):
             return _message(str(err), HTTPStatus.BAD_REQUEST)
         for note in apns_request.notes:
             _LOGGER.debug("%s: %s", entry.get("device_name"), note)
+        if apns_request.dropped:
+            # Nothing to send, and not a failure: core must not retry or log an error for it.
+            return self.json({"rateLimits": counter.rate_limits(webhook_id)}, status_code=HTTPStatus.CREATED)
 
         device_token = str(body.get(apns_request.token_key) or "")
         environment = app_data.get(APP_DATA_ENVIRONMENT)

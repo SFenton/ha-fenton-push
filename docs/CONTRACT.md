@@ -1,4 +1,4 @@
-# Fenton Home Push: app contract (v1)
+# Fenton Home Push: app contract (v1; Live Activities v2, section 6)
 
 How the Fenton Home iOS app (bundle `com.sfenton.home`) and this integration talk. Home Assistant's own
 `mobile_app` integration sits in the middle and is used unchanged.
@@ -129,3 +129,74 @@ Every payload above can be delivered to a simulator with
 `xcrun simctl push <udid> com.sfenton.home payload.apns` (top-level `"Simulator Target Bundle"` key or the
 bundle argument). `tests/fixtures/*.apns` holds the integration's real output for the front-door, doorbell,
 Donetick and clear cases.
+
+## 6. Live Activities (contract v2)
+
+One aggregate **Home** activity lists the household jobs that are running (dishwasher, fan timers, laundry…). Home
+Assistant's `mobile_app` already stores the phone's push-to-start token (`app_data.start_live_activity_token`) and each
+activity's update token (webhooks `live_activity_token` and `live_activity_dismissed`), and chooses the event when a
+notification carries `data.live_update: true` and a `tag`: a **start** with the push-to-start token, an **update** with
+the activity's token, an **end** on `clear_notification`. It posts the result here with `live_activity_token` set and
+`data.event`. Everything below is what this integration does with that post.
+
+Only a post with `live_activity_token` becomes a `liveactivity` push (`apns-push-type: liveactivity`, topic
+`com.sfenton.home.push-type.liveactivity`). The token key is the APNs device token of the activity, not `push_token`.
+
+**A `live_update` post without `live_activity_token` is dropped.** `mobile_app` found no activity and no
+push-to-start token, so the device cannot show one (the person turned Live Activities off, the app is older, or it is
+the iPad before iPadOS 17). The answer is still `201` (nothing is retried, nothing is logged as an error), no push is
+sent and the daily count does not move. Without this the post would arrive as a banner.
+
+### Content
+
+`data.fenton_activity` (the automation's block, or what the `fenton_push` job engine will build) becomes the activity's
+`content-state`, and is validated against the app's `HomeActivityState`:
+
+```json
+{"v": 1, "focus": "dishwasher", "url": "/sfenton-react-dash/home?path=kitchen",
+ "jobs": [
+  {"id": "dishwasher", "kind": "dishwasher", "title": "Dishwasher", "status": "Eco 50° · Drying", "phase": "running",
+   "start_ts": 1792241200, "end_ts": 1792251720, "progress": 0.62, "symbol": "dishwasher", "tint": "cleaning",
+   "controls": [{"id": "stop", "title": "Stop", "role": "destructive"}]}]}
+```
+
+- `start_ts` and `end_ts` are **Unix seconds as numbers**. ActivityKit decodes pushes with a default `JSONDecoder`;
+  a date string, or a `Date`, would be read from 2001. Milliseconds are recognised and converted.
+- `phase` is `running`, `paused`, `waiting`, `attention`, `stopping` or `done` (anything else reads `running`).
+- `estimated: true` shows "About 3:40 PM" and never a seconds countdown. `progress` is 0 to 1. `tint` is a colour
+  family (`cleaning`, `air`, `water`…); `symbol` an SF Symbol name.
+- **Budget**: 6 jobs, 40 characters of status, 2 controls per job, a 200 character `url` that carries no token. The
+  focused job is kept when jobs are cut. A control keeps only `id`, `title` and `role`: the service it maps to
+  (`action`, `target`) stays in Home Assistant and never reaches the phone. The whole push stays under Apple's 4 KB
+  (`payload_too_large` otherwise).
+- `stale_ts` in the block (Unix seconds) becomes `aps.stale-date`; without it the stale date is the earliest running
+  `end_ts` plus 10 minutes, or 30 minutes from now when no job has an end. The views read "Updating…" past it.
+
+Without a block, the companion app's keys map to **one `generic` job** so existing automations show something
+sensible: `message` is the status, `title` the job title, `progress`/`progress_max` the bar, `chronometer` with `when`
+(a Unix time, or seconds from now with `when_relative`) a countdown (a time already past is not drawn),
+`notification_icon` (a few `mdi:` names) the symbol, `url` the tap target.
+
+### Events
+
+| `data.event` | `aps` |
+|---|---|
+| `start` | `attributes-type: HomeActivityAttributes`, `attributes: {tag, title, kind}`, a quiet `alert` (Apple requires one; no sound), `input-push-token: 1` (iOS 18 returns the new activity's token), `stale-date` |
+| `update` | `content-state`, `stale-date`. An `alert` and sound only when `data.live_alert` is set |
+| `end` | `content-state` (the final one, or an empty list on `clear_notification`), `dismissal-date` = now + `data.dismiss_after` seconds (default 0, at most 4 hours) |
+
+`attributes.kind` is `home` for a `fenton_activity` block, `generic` otherwise. `relevance_score` passes through as
+`relevance-score`. `fenton: {"v": 2, "tag": …}` rides along. The Swift type name `HomeActivityAttributes` is the
+`attributes-type`: a push-to-start token is per type, so it never changes.
+
+**Priority**: 10 for a start, an end, anything that alerts and anything with `data.urgent`; 5 for the many updates
+between, which Apple does not count against its budget but may delay.
+
+### Testing without Apple
+
+`tests/fixtures/live-start.apns`, `live-update.apns`, `live-end.apns` and `live-generic.apns` are this integration's
+real output at a fixed time. `xcrun simctl push` cannot deliver them: it parses the file as a remote notification
+and refuses one with no alert (`UNErrorDomain 1401, Notification has no user visible content`, Xcode 27.1, iOS 27.0
+simulator), so nothing reaches ActivityKit. The app decodes them in its unit tests instead
+(`tools/push_fixtures/live-*.apns` in the app repository). Apple's Push Notifications Console and a real device
+are the only end-to-end check.

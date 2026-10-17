@@ -67,9 +67,72 @@ CLEAR = {
     "registration_info": REGISTRATION_INFO,
 }
 
+#: The instant the live fixtures are built at (2026-10-17 15:00:00 UTC), so ``tests/fixtures/live-*.apns`` are stable.
+FIXTURE_NOW = 1_792_249_200
+
+#: What the ``fenton_push.set_live_job`` engine will put in ``data.fenton_activity`` (Phase 2); the automations of
+#: Phase 1 can send the same block by hand.
+HOME_ACTIVITY = {
+    "focus": "dishwasher",
+    "url": "/sfenton-react-dash/home?path=kitchen",
+    "jobs": [
+        {"id": "dishwasher", "kind": "dishwasher", "title": "Dishwasher", "status": "Eco 50° · Drying", "phase": "running",
+         "start_ts": FIXTURE_NOW - 8_000, "end_ts": FIXTURE_NOW + 2_520, "progress": 0.62, "symbol": "dishwasher",
+         "tint": "cleaning",
+         # ``action`` and ``target`` are Home Assistant's own: they must not reach the phone.
+         "controls": [{"id": "stop", "title": "Stop", "role": "destructive", "action": "button.press",
+                       "target": {"entity_id": "button.dishwasher_stop_program"}}]},
+        {"id": "fan.master", "kind": "bathroom_fan", "title": "Master Bath Fan", "status": "Off in", "phase": "running",
+         "start_ts": FIXTURE_NOW - 300, "end_ts": FIXTURE_NOW + 1_500, "symbol": "fan", "tint": "air",
+         "controls": [{"id": "cancel_timer", "title": "Cancel Timer"}]},
+    ],
+}
+
+LIVE_START = {
+    "message": "Dishwasher started",
+    "title": "Home",
+    "live_activity_token": "b" * 64,
+    "data": {"tag": "fenton-home", "live_update": True, "event": "start", "fenton_activity": HOME_ACTIVITY},
+    "push_token": "a" * 64,
+    "registration_info": REGISTRATION_INFO,
+}
+
+LIVE_UPDATE = {
+    "message": "Dishwasher · 42 min left",
+    "title": "Home",
+    "live_activity_token": "c" * 64,
+    "data": {"tag": "fenton-home", "live_update": True, "event": "update", "fenton_activity": HOME_ACTIVITY},
+    "push_token": "a" * 64,
+    "registration_info": REGISTRATION_INFO,
+}
+
+LIVE_END = {
+    "message": "clear_notification",
+    "live_activity_token": "c" * 64,
+    "data": {"tag": "fenton-home", "event": "end"},
+    "push_token": "a" * 64,
+    "registration_info": REGISTRATION_INFO,
+}
+
+#: A companion-app style automation: one chronometer notification, nothing Fenton-specific.
+LIVE_GENERIC = {
+    "message": "Sprinklers · Front lawn",
+    "title": "Watering",
+    "live_activity_token": "b" * 64,
+    "data": {"tag": "sprinklers-front", "live_update": True, "event": "start", "chronometer": True, "when": 600,
+             "when_relative": True, "progress": 1, "progress_max": 4, "notification_icon": "mdi:sprinkler",
+             "url": "/sfenton-react-dash/home?path=sprinklers"},
+    "push_token": "a" * 64,
+    "registration_info": REGISTRATION_INFO,
+}
+
 FIXTURES = {
     "front-door-unsecured": FRONT_DOOR_UNSECURED,
     "doorbell": DOORBELL,
     "donetick": DONETICK,
     "clear-notification": CLEAR,
+    "live-start": LIVE_START,
+    "live-update": LIVE_UPDATE,
+    "live-end": LIVE_END,
+    "live-generic": LIVE_GENERIC,
 }

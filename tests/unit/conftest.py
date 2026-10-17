@@ -13,7 +13,7 @@ if "fenton_push" not in sys.modules:
     package = types.ModuleType("fenton_push")
     package.__path__ = [str(PACKAGE)]
     sys.modules["fenton_push"] = package
-    for name in ("const", "payload", "apns"):
+    for name in ("const", "live", "payload", "apns"):
         spec = importlib.util.spec_from_file_location(f"fenton_push.{name}", PACKAGE / f"{name}.py")
         module = importlib.util.module_from_spec(spec)
         sys.modules[spec.name] = module

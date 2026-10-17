@@ -1,0 +1,41 @@
+{
+  "Simulator Target Bundle": "com.sfenton.home",
+  "aps": {
+    "timestamp": 1792249200,
+    "event": "start",
+    "content-state": {
+      "v": 1,
+      "jobs": [
+        {
+          "id": "sprinklers-front",
+          "kind": "generic",
+          "title": "Watering",
+          "status": "Sprinklers · Front lawn",
+          "phase": "running",
+          "symbol": "drop.fill",
+          "tint": "neutral",
+          "start_ts": 1792249200,
+          "end_ts": 1792249800,
+          "progress": 0.25
+        }
+      ],
+      "url": "/sfenton-react-dash/home?path=sprinklers"
+    },
+    "attributes-type": "HomeActivityAttributes",
+    "attributes": {
+      "tag": "sprinklers-front",
+      "title": "Watering",
+      "kind": "generic"
+    },
+    "alert": {
+      "title": "Watering",
+      "body": "Sprinklers · Front lawn"
+    },
+    "input-push-token": 1,
+    "stale-date": 1792250400
+  },
+  "fenton": {
+    "v": 2,
+    "tag": "sprinklers-front"
+  }
+}
