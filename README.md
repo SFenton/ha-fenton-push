@@ -57,10 +57,48 @@ notify:
 
 Button handlers keep working: the app fires `mobile_app_notification_action` through its own registration, so the event carries the signed-in user just like the official app's.
 
+## Live Activities: one card per job
+
+With Live Activities allowed, the app hands Home Assistant a push-to-start token and this integration's job engine
+(`live_jobs.py`) shows each running household job as its own Live Activity, kept current while the app is closed: the
+bathroom fans, the dishwasher, the washer and dryer, the vacuums (one card per room, or per manual run) and a hot flash.
+Cards go to every person with the app, ordered by relevance (the Dynamic Island shows the most relevant), with up to
+four jobs and one problem on a device at a time. A card's Stop, Pause, Resume and Dock buttons run the matching Home
+Assistant action; the card ends once the device confirms. A job that finishes by itself shows **Complete** for five
+minutes. The design and every rule is in `Fenton-HASS-Native/.agents/platforms/apple/live-activities-per-job.md`;
+`docs/CONTRACT.md` section 7 is the wire contract.
+
+`sensor.fenton_live_jobs` lists what each device is showing, for debugging. The job entities and service mappings the
+engine reads are in `custom_components/fenton_push/entities.py` and `controls.py`.
+
+### Problem cards: `fenton_push.problem`
+
+A device problem (a robot that is stuck, a dishwasher that needs attention) is a card too, and replaces the ordinary
+notification for people who have the app. Call the service where the notification used to be sent:
+
+```yaml
+action: fenton_push.problem
+data:
+  device: main_floor                      # main_floor, music_room, theater_room or dishwasher
+  code: navigation.stuck                  # or raw: "Unknown error 12" to map the robot's own text
+  title: "Main Floor Vacuum · Robot Stuck"      # the ordinary notification, for people without the app
+  message: "The vacuum is stuck in the Kitchen."
+  task_title: "Main Floor Vacuum · Robot Stuck"  # the Donetick task the card follows
+  url: /sfenton-react-dash/home?path=vacuums
+  tag: vacuum-kitchen-error
+```
+
+People with the app see a card (red with a sound when the robot stopped, amber and silent when it carries on). Everyone
+else gets the ordinary notification through their own notify action (`notify.stephen_s_phone`; the pattern is an
+option). The card stays until the Donetick task is completed, by Home Assistant, a person or the card's own **Done**
+button, and the notification is cleared when it ends. A problem with no task ends when the condition clears.
+
 ## Options
 
 - **Send critical alerts.** Leave off until Apple grants the app the Critical Alerts entitlement. While it is off, `critical` notifications arrive as time-sensitive with the default sound.
 - **Push address base URL.** Where Home Assistant can reach itself (for example `http://127.0.0.1:8123`). Empty uses the internal URL.
+- **Show job cards**, **Jobs that get a card**, **Devices that get cards.** The master switch for Live Activity cards, which jobs run, and which devices (empty: every device with Live Activities allowed) get them. With the switch off, problems go to everyone as ordinary notifications.
+- **Notify action for people without the app.** The action that reaches a person's whole phone, with `*` for their first name; the default `*_s_phone` is `notify.stephen_s_phone`.
 
 ## How it works
 
@@ -73,4 +111,4 @@ Button handlers keep working: the app fires `mobile_app_notification_action` thr
 
 ## Development
 
-`python -m pytest tests/unit` (no Home Assistant needed); CI also runs `tests/ha` with `pytest-homeassistant-custom-component`, plus HACS and hassfest validation. `tests/fixtures/*.apns` are real payloads for `xcrun simctl push`; regenerate them with `python tests/fixtures/build.py`.
+`PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests/unit` (no Home Assistant needed; the job engine, adapters, problems and relay are all unit-tested on recorded state snapshots in `tests/scenarios.py`); CI also runs `tests/ha` with `pytest-homeassistant-custom-component`, plus HACS and hassfest validation. `tests/fixtures/*.apns` are real payloads for `xcrun simctl push`; regenerate them with `python tests/fixtures/build.py`.
