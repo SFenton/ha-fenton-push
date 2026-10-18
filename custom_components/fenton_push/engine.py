@@ -282,7 +282,7 @@ class Engine:
         for job_id, record in list(self.records.items()):
             if record.task_id is not None:
                 gone = record.task_completed
-            elif record.awaiting_task:
+            elif record.awaiting_task(now):
                 gone = False
             else:
                 gone = job_id not in by_job and (record.source == "sensor" or record.sensor_seen

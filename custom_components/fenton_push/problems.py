@@ -262,10 +262,12 @@ class ProblemRecord:
     def taskable(self) -> bool:
         return self.task_title is not None
 
-    @property
-    def awaiting_task(self) -> bool:
-        return self.taskable and self.task_id is None and self.lookups < MAX_LOOKUPS
+    def awaiting_task(self, now: float) -> bool:
+        """Whether the Donetick task is still being looked for (it may not have been created yet)."""
+        return self.taskable and self.task_id is None and self.lookups < MAX_LOOKUPS \
+            and now - self.created < LOOKUP_WINDOW
 
 
-#: Donetick lookups per record before it is treated as having no task.
+#: Donetick lookups per record before it is treated as having no task, and the longest to keep looking (seconds).
 MAX_LOOKUPS = 5
+LOOKUP_WINDOW = 60.0

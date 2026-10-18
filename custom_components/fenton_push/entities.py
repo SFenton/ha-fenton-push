@@ -76,7 +76,8 @@ class Style:
 
 
 # ``symbol`` is a glyph id from the app's own set and ``tint`` a ``ColorFamily`` raw value (spec section 3).
-# VERIFY: the tint raw values other than ``air``, ``cleaning`` and ``water`` (the spec's examples).
+# VERIFY: the tint raw values other than ``air``, ``cleaning`` and ``water`` (the spec's examples), the glyph ids
+# other than the spec's ``fan`` and ``vacuum``, and every dashboard ``path=`` except ``kitchen`` and ``vacuums``.
 STYLES: dict[str, Style] = {
     JOB_FAN_GUEST: Style("Guest Bath Fan", "fan", "fan", "air", "/sfenton-react-dash/home?path=bathrooms"),
     JOB_FAN_MASTER: Style("Master Bath Fan", "fan", "fan", "air", "/sfenton-react-dash/home?path=bathrooms"),

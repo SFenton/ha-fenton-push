@@ -147,6 +147,7 @@ class LiveJobs:
     async def async_stop(self) -> None:
         """Stop listening. Cards stay on the phones; they end when the job does or after 8 hours."""
         self._stopped = True
+        self.hass.states.async_remove(SENSOR_JOBS)
         for unsub in self._unsubs:
             unsub()
         self._unsubs.clear()
@@ -281,23 +282,23 @@ class LiveJobs:
         wake = plan.wake_in
         if failed:
             wake = RETRY_SECONDS if wake is None else min(wake, RETRY_SECONDS)
-        if any(r.awaiting_task for r in self.engine.records.values()):
+        if any(r.awaiting_task(now) for r in self.engine.records.values()):
             wake = LOOKUP_INTERVAL if wake is None else min(wake, LOOKUP_INTERVAL)
         self._set_wake(wake)
 
     async def _sync_tasks(self, now: float) -> None:
         """Find each problem's Donetick task, and notice when a linked one has been completed."""
         records = [r for r in self.engine.records.values() if r.task_id is not None
-                   or (r.awaiting_task and now - r.last_lookup >= LOOKUP_INTERVAL)]
+                   or (r.awaiting_task(now) and now - r.last_lookup >= LOOKUP_INTERVAL)]
         if not records:
             return
         items = await donetick.open_tasks(self.hass)
+        if items is None:
+            return  # the todo list isn't there (yet); that is not a lookup
         for record in records:
             if record.task_id is None:
                 record.lookups += 1
                 record.last_lookup = now
-            if items is None:
-                continue
             open_ids = {tid for i in items if (tid := donetick.task_id_from_uid(i.get("uid"))) is not None}
             if record.task_id is None:
                 matches = [donetick.task_id_from_uid(i.get("uid")) for i in items if i.get("summary") == record.task_title]

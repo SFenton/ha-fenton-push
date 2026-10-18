@@ -488,14 +488,17 @@ def test_a_service_problem_the_sensors_never_confirm_is_kept_for_a_grace_period_
     assert engine.records == {}
 
 
-def test_a_service_problem_waits_for_its_task_to_be_found() -> None:
+def test_a_service_problem_waits_for_its_task_to_be_found_but_not_forever() -> None:
     engine = Engine()
     engine.raise_problem("dishwasher", "dishwasher.rinse_aid", None, NOW, task_title="Refill rinse aid")
-    run(engine, sc.states(), 400)
+    run(engine, sc.states(), 30)
     assert "dishwasher" in engine.records, "lookups are still pending"
+    run(engine, sc.states(), 200)
+    assert engine.records == {}, "the task never turned up within the lookup window, and the grace period is over"
+    engine.raise_problem("dishwasher", "dishwasher.rinse_aid", None, NOW + 100, task_title="Refill rinse aid")
     engine.records["dishwasher"].lookups = 5
-    run(engine, sc.states(), 410)
-    assert engine.records == {}
+    run(engine, sc.states(), 400)
+    assert engine.records == {}, "or within five lookups"
 
 
 def test_the_service_code_wins_over_a_different_sensor_code_while_the_problem_lasts() -> None:
