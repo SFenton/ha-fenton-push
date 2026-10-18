@@ -1,0 +1,61 @@
+problem:
+  name: Raise a device problem
+  description: >-
+    Shows a problem card on the Live Activities of people who have S+H, and sends the ordinary notification to
+    everyone else through their own notify action. The card follows the Donetick task with the given title and ends
+    on every device when the task is completed (or, for a problem with no task, when the condition clears).
+  fields:
+    device:
+      name: Device
+      description: The device that has the problem, such as main_floor, music_room, theater_room or dishwasher.
+      required: true
+      example: main_floor
+      selector:
+        text:
+    code:
+      name: Code
+      description: The problem code, such as navigation.stuck. Leave empty to work it out from the raw text.
+      example: navigation.stuck
+      selector:
+        text:
+    raw:
+      name: Raw error text
+      description: The robot's own error text, used for unknown and unmapped errors.
+      example: Unknown error 75
+      selector:
+        text:
+    title:
+      name: Notification title
+      description: The title of the ordinary notification sent to people without S+H.
+      example: Main Floor Vacuum · Robot Stuck
+      selector:
+        text:
+    message:
+      name: Notification message
+      description: The text of the ordinary notification.
+      selector:
+        text:
+          multiline: true
+    task_title:
+      name: Donetick task title
+      description: The summary of the Donetick task for this problem. Leave empty when there is no task.
+      example: Main Floor Vacuum · Robot Stuck
+      selector:
+        text:
+    url:
+      name: Link
+      description: Where a tap on the notification goes.
+      example: /sfenton-react-dash/home?path=vacuums
+      selector:
+        text:
+    tag:
+      name: Notification tag
+      description: The tag of the ordinary notification, cleared when the card ends.
+      example: vacuum-kitchen-error
+      selector:
+        text:
+    data:
+      name: Extra notification data
+      description: More data for the ordinary notification (push options, actions).
+      selector:
+        object:

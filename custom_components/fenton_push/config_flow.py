@@ -9,6 +9,10 @@ from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResu
 from homeassistant.core import callback
 from homeassistant.helpers.selector import (
     BooleanSelector,
+    SelectOptionDict,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
     TextSelector,
     TextSelectorConfig,
     TextSelectorType,
@@ -20,11 +24,17 @@ from .const import (
     CONF_CRITICAL_ALERTS,
     CONF_KEY,
     CONF_KEY_ID,
+    CONF_LIVE_DEVICES,
+    CONF_LIVE_JOBS,
+    CONF_LIVE_JOBS_ENABLED,
+    CONF_PERSON_NOTIFY,
     CONF_PUSH_BASE_URL,
     CONF_TEAM_ID,
     DEFAULT_BUNDLE_ID,
     DOMAIN,
 )
+from .entities import DEFAULT_PERSON_NOTIFY, JOB_IDS, STYLES
+from .targets import live_devices
 
 KEY_SELECTOR = TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD, multiline=False))
 
@@ -90,18 +100,35 @@ class FentonPushConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class FentonPushOptionsFlow(OptionsFlow):
-    """Critical alerts (once Apple grants the entitlement) and an explicit push base URL."""
+    """Critical alerts (once Apple grants the entitlement), an explicit push base URL and the job cards."""
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input is not None:
             return self.async_create_entry(data={
                 CONF_CRITICAL_ALERTS: bool(user_input.get(CONF_CRITICAL_ALERTS, False)),
                 CONF_PUSH_BASE_URL: (user_input.get(CONF_PUSH_BASE_URL) or "").strip(),
+                CONF_LIVE_JOBS_ENABLED: bool(user_input.get(CONF_LIVE_JOBS_ENABLED, True)),
+                CONF_LIVE_JOBS: [j for j in user_input.get(CONF_LIVE_JOBS, list(JOB_IDS)) if j in JOB_IDS],
+                CONF_LIVE_DEVICES: list(user_input.get(CONF_LIVE_DEVICES) or []),
+                CONF_PERSON_NOTIFY: (user_input.get(CONF_PERSON_NOTIFY) or DEFAULT_PERSON_NOTIFY).strip(),
             })
         options = self.config_entry.options
+        bundle = self.config_entry.data.get(CONF_BUNDLE_ID, DEFAULT_BUNDLE_ID)
+        devices = {d.webhook_id: d.name for d in live_devices(self.hass, bundle)}
+        for webhook_id in options.get(CONF_LIVE_DEVICES) or []:
+            devices.setdefault(webhook_id, webhook_id)
         schema = vol.Schema({
             vol.Optional(CONF_CRITICAL_ALERTS, default=options.get(CONF_CRITICAL_ALERTS, False)): BooleanSelector(),
             vol.Optional(CONF_PUSH_BASE_URL, description={"suggested_value": options.get(CONF_PUSH_BASE_URL, "")}):
                 TextSelector(TextSelectorConfig(type=TextSelectorType.URL)),
+            vol.Optional(CONF_LIVE_JOBS_ENABLED, default=options.get(CONF_LIVE_JOBS_ENABLED, True)): BooleanSelector(),
+            vol.Optional(CONF_LIVE_JOBS, default=options.get(CONF_LIVE_JOBS, list(JOB_IDS))): SelectSelector(
+                SelectSelectorConfig(options=[SelectOptionDict(value=job, label=STYLES[job].title) for job in JOB_IDS],
+                                     multiple=True, mode=SelectSelectorMode.LIST)),
+            vol.Optional(CONF_LIVE_DEVICES, default=options.get(CONF_LIVE_DEVICES, [])): SelectSelector(
+                SelectSelectorConfig(options=[SelectOptionDict(value=k, label=v) for k, v in sorted(devices.items())],
+                                     multiple=True, mode=SelectSelectorMode.LIST)),
+            vol.Optional(CONF_PERSON_NOTIFY, default=options.get(CONF_PERSON_NOTIFY, DEFAULT_PERSON_NOTIFY)):
+                TextSelector(),
         })
         return self.async_show_form(step_id="init", data_schema=schema)

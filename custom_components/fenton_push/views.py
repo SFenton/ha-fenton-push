@@ -11,6 +11,7 @@ device's daily allowance is spent, otherwise an error status with a ``message`` 
 
 from __future__ import annotations
 
+import copy
 import hmac
 import logging
 from collections import defaultdict
@@ -23,6 +24,7 @@ from homeassistant.components.http import KEY_HASS, HomeAssistantView
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.network import NoURLAvailableError, get_url
 
+from . import recovery
 from .apns import ENVIRONMENTS, APNsError
 from .const import API_CONFIG, API_PUSH, APP_DATA_ENVIRONMENT, CONF_PUSH_BASE_URL, DAILY_LIMIT, DOMAIN
 from .payload import PayloadError, build
@@ -137,8 +139,10 @@ class PushView(HomeAssistantView):
             return web.json_response({"message": f"Daily limit of {counter.limit} reached for this device",
                                       "rateLimits": counter.rate_limits(webhook_id)},
                                      status=HTTPStatus.TOO_MANY_REQUESTS)
+        tag = str((body.get("data") or {}).get("tag") or "") if isinstance(body.get("data"), dict) else ""
         try:
-            apns_request = build(body, critical_enabled=runtime.critical_alerts)
+            apns_request = build(body, critical_enabled=runtime.critical_alerts, timestamps=runtime.timestamps,
+                                 ts_key=f"{webhook_id}:{tag}")
         except PayloadError as err:
             counter.errors[webhook_id] += 1
             return _message(str(err), HTTPStatus.BAD_REQUEST)
@@ -154,6 +158,10 @@ class PushView(HomeAssistantView):
         try:
             await runtime.client.send(device_token, apns_request, environment)
         except APNsError as err:
+            if apns_request.push_type == "liveactivity" and err.status == 410:
+                if (answer := await self._recover_activity(hass, runtime, webhook_id, tag, body, app_data,
+                                                           environment)) is not None:
+                    return answer
             if err.reason == "BadDeviceToken":
                 # A token from the other APNs environment (an Xcode build reporting production, or the reverse).
                 other = "sandbox" if environment == "production" else "production"
@@ -166,6 +174,37 @@ class PushView(HomeAssistantView):
                     return self.json({"rateLimits": counter.rate_limits(webhook_id)}, status_code=HTTPStatus.CREATED)
             counter.errors[webhook_id] += 1
             return self._apns_failure(entry, err)
+        counter.sent[webhook_id] += 1
+        return self.json({"rateLimits": counter.rate_limits(webhook_id)}, status_code=HTTPStatus.CREATED)
+
+    async def _recover_activity(self, hass: HomeAssistant, runtime: PushRuntime, webhook_id: str, tag: str,
+                                body: dict[str, Any], app_data: dict[str, Any], environment: str) -> web.Response | None:
+        """Apple says this activity is gone (410): drop core's dead token for the tag and, for an update, start again.
+
+        Core turns a start for a tag that still has a stored token into an update, so without this the tag could not
+        start again until the token expired. An ``end`` that finds the activity already gone has done its job. Returns
+        the answer for core, or None to report the 410 as usual.
+        """
+        counter = runtime.counter
+        event = str((body.get("data") or {}).get("event") or "")
+        removed = recovery.remove_token(hass, webhook_id, tag) if tag else False
+        _LOGGER.info("Live activity %s on %s is gone (410); stored token %s", tag, webhook_id,
+                     "removed" if removed else "left in place")
+        if event == "end":
+            return self.json({"rateLimits": counter.rate_limits(webhook_id)}, status_code=HTTPStatus.CREATED)
+        start_token = str(app_data.get("start_live_activity_token") or "")
+        if event != "update" or not start_token:
+            return None
+        retry = copy.deepcopy(body)
+        retry["live_activity_token"] = start_token
+        retry["data"]["event"] = "start"
+        try:
+            request = build(retry, critical_enabled=runtime.critical_alerts, timestamps=runtime.timestamps,
+                            ts_key=f"{webhook_id}:{tag}")
+            await runtime.client.send(start_token, request, environment)
+        except (PayloadError, APNsError) as err:
+            _LOGGER.warning("Couldn't restart %s on %s after its activity ended: %s", tag, webhook_id, err)
+            return None
         counter.sent[webhook_id] += 1
         return self.json({"rateLimits": counter.rate_limits(webhook_id)}, status_code=HTTPStatus.CREATED)
 
