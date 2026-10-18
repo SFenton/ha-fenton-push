@@ -11,7 +11,6 @@
         "kind": "countup",
         "start_ts": 1792248300
       },
-      "progress": 1.0,
       "controls": [
         {
           "id": "pause",
@@ -23,7 +22,7 @@
           "role": "secondary"
         }
       ],
-      "url": "/sfenton-react-dash/home?path=vacuums"
+      "url": "/sfenton-react-dash/home?path=living-room#robot-vacuum"
     },
     "attributes-type": "HomeActivityAttributes",
     "attributes": {

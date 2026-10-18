@@ -104,21 +104,23 @@ def relevance_countdown(end_ts: float, now: float) -> float:
 
 def _card(job_id: str, phase: str, value: dict, **fields) -> JobState:
     style = style_for(job_id)
+    fields.setdefault("url", style.url)
     return JobState(job_id=job_id, title=style.title, kind=style.kind, symbol=style.symbol, tint=style.tint,
-                    phase=phase, value=value, url=style.url, **fields)
+                    phase=phase, value=value, **fields)
 
 
 def complete_card(job_id: str, *, audience: frozenset[str] | None = None, headline: str | None = None,
-                  detail: str | None = None, linger_holds: bool = False) -> JobState:
+                  detail: str | None = None, url: str | None = None, linger_holds: bool = False) -> JobState:
     """The card of a job that finished on its own: a filled ring and "Complete" (relevance 10)."""
-    return _card(job_id, "done", text(COMPLETE), headline=headline, detail=detail, progress=1.0, complete=True, relevance=10.0,
+    return _card(job_id, "done", text(COMPLETE), headline=headline, detail=detail, progress=1.0, complete=True,
+                 relevance=10.0, url=url or style_for(job_id).url,
                  linger_holds=linger_holds, audience=audience, open_ended=False)
 
 
 def as_complete(job: JobState) -> JobState:
     """The Complete card for a running laundry job that has just finished (it keeps its audience and headline)."""
     return complete_card(job.job_id, audience=job.audience, headline=job.headline, detail=job.detail,
-                         linger_holds=True)
+                         url=job.url, linger_holds=True)
 
 
 # -- Fans -------------------------------------------------------------------------------------------------------------
@@ -194,7 +196,7 @@ def laundry(job_id: str, states: States, now: float, ctx: Ctx) -> JobState | Non
     if not states.is_on(helper):
         return None
     start = (states.changed(helper) or now) - LAUNDRY_OFFSET
-    return _card(job_id, "running", countup(start), progress=1.0, relevance=55.0, complete_on_drop=True)
+    return _card(job_id, "running", countup(start), relevance=55.0, complete_on_drop=True)
 
 
 # -- Vacuums ----------------------------------------------------------------------------------------------------------
@@ -247,14 +249,14 @@ def vacuum(robot: Robot, states: States, now: float, ctx: Ctx) -> JobState | Non
     return None
 
 
-def _running_card(robot: Robot, headline: str, session_key: str, start: float, vac: str, states: States, *,
+def _running_card(robot: Robot, headline: str, paused: str, session_key: str, start: float, vac: str, states: States, *,
                   session: bool) -> JobState:
     if vac == "paused":
         paused_for = (states.changed(robot.vacuum) or start) - start
-        return _card(robot.job, "paused", countup(start, paused_for), headline=headline, progress=1.0,
+        return _card(robot.job, "paused", countup(start, paused_for), headline=paused,
                      controls=(ctl.vacuum_resume(robot, session), ctl.vacuum_dock(robot, session)),
                      relevance=55.0, session_key=session_key)
-    return _card(robot.job, "running", countup(start), headline=headline, progress=1.0,
+    return _card(robot.job, "running", countup(start), headline=headline,
                  controls=(ctl.vacuum_pause(robot, session), ctl.vacuum_dock(robot, session)),
                  relevance=55.0, session_key=session_key)
 
@@ -263,8 +265,8 @@ def _coordinator_room(robot: Robot, room_id: str, vac: str, states: States, now:
     entities = coordinator_entities(robot)
     start = parse_time(states.attr(entities["current_room"], "start_confirmed_at"))
     start = start or states.changed(robot.vacuum) or now
-    headline = f"{_verb(robot, states)} {room_label(robot, room_id, states)}"
-    return _running_card(robot, headline, f"room:{room_id}", start, vac, states, session=_session(robot, states))
+    room = room_label(robot, room_id, states)
+    return _running_card(robot, f"{_verb(robot, states)} {room}", f"Paused in {room}", f"room:{room_id}", start, vac, states, session=_session(robot, states))
 
 
 def _manual_run(robot: Robot, vac: str, states: States, now: float, ctx: Ctx) -> JobState:
@@ -282,7 +284,8 @@ def _manual_run(robot: Robot, vac: str, states: States, now: float, ctx: Ctx) ->
     session_key = f"{flag}:{segment}"
     remembered = ctx.memory.session_start.get(robot.job)
     start = remembered[1] if remembered and remembered[0] == session_key else (states.changed(robot.vacuum) or now)
-    return _running_card(robot, headline, session_key, start, vac, states, session=False)
+    paused = f"Paused in {segment}" if segment else "Paused"
+    return _running_card(robot, headline, paused, session_key, start, vac, states, session=False)
 
 
 def _issue(robot: Robot, states: States) -> tuple[str, str | None, float | None] | None:
@@ -470,8 +473,9 @@ def hot_flash(states: States, now: float, ctx: Ctx) -> list[JobState]:
         shown = active or view
         detail = _detail(person, shown, memory)
         audience = frozenset({person})
+        url = SIDES[shown[0]].url if len(shown) == 1 else None
         if not active:
-            cards.append(complete_card(JOB_HOT_FLASH, audience=audience, detail=detail, linger_holds=True))
+            cards.append(complete_card(JOB_HOT_FLASH, audience=audience, detail=detail, url=url, linger_holds=True))
             continue
         if any(live[key] == "cooling" for key in active):
             value, progress = text("Cooling"), _cooling_progress([k for k in active if live[k] == "cooling"], states, memory)
@@ -480,7 +484,7 @@ def hot_flash(states: States, now: float, ctx: Ctx) -> list[JobState]:
             end = max(ends) if ends else None
             value = countdown(end, end - HOT_FLASH_HOLD_SECONDS) if end else text("Holding")
             progress = None
-        cards.append(_card(JOB_HOT_FLASH, "running", value, detail=detail, progress=progress,
+        cards.append(_card(JOB_HOT_FLASH, "running", value, detail=detail, url=url or style_for(JOB_HOT_FLASH).url, progress=progress,
                            controls=(ctl.hot_flash_stop(tuple(active)),), relevance=70.0, audience=audience,
                            open_ended=False if value["kind"] == "countdown" else True))
     return cards

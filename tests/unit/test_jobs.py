@@ -129,7 +129,7 @@ def test_dishwasher_finished_is_complete() -> None:
 def test_laundry_counts_up_from_five_minutes_before_the_helper_turned_on(job_id, title) -> None:
     job = jobs(sc.laundry(job_id, on_for=1800))[job_id]
     assert job.title == title and job.value == {"kind": "countup", "start_ts": NOW - 1800 - 300}
-    assert job.controls == () and job.progress == 1.0 and job.relevance == 55 and job.complete_on_drop
+    assert job.controls == () and job.progress is None and job.relevance == 55 and job.complete_on_drop
     assert job_id not in jobs(sc.laundry(job_id, on=False))
 
 
@@ -140,7 +140,7 @@ def test_main_floor_room_headline_and_count_up() -> None:
     job = jobs(sc.main_floor())["vacuum.main_floor"]
     assert job.title == "Main Floor Vacuum" and job.headline == "Cleaning Kitchen"
     assert job.value == {"kind": "countup", "start_ts": NOW - 900} and job.session_key == "room:kitchen"
-    assert [c.id for c in job.controls] == ["pause", "dock"] and job.progress == 1.0
+    assert [c.id for c in job.controls] == ["pause", "dock"] and job.progress is None, "a count-up has no ring progress"
 
 
 @pytest.mark.parametrize(("mode", "verb"), [("vacuum", "Vacuuming"), ("mop", "Mopping"), ("vacuum_and_mop", "Cleaning")])
@@ -172,6 +172,7 @@ def test_pause_and_resume_are_vacuum_services_and_dock_cancels_the_coordinators_
 def test_paused_room_freezes_the_time_and_offers_resume() -> None:
     job = jobs(sc.main_floor("paused", changed=NOW - 300))["vacuum.main_floor"]
     assert job.phase == "paused" and job.value == {"kind": "countup", "start_ts": NOW - 900, "paused_elapsed_s": 600}
+    assert job.headline == "Paused in Kitchen"
     resume = job.controls[0]
     assert resume.id == "resume" and resume.calls[0].service == "start" and resume.outcome == "update"
 
@@ -224,7 +225,7 @@ def test_manual_run_resume_uses_vacuum_start_and_keeps_its_start_across_a_pause(
     paused = jobs(sc.manual_run("music_room", flag="spot", vac="paused").with_(
         vacuum__valetudo_elatedusedram=("paused", {}, NOW - 60)), memory=memory)["vacuum.music_room"]
     assert paused.value == {"kind": "countup", "start_ts": NOW - 300, "paused_elapsed_s": 240}
-    assert paused.controls[0].calls[0].service == "start"
+    assert paused.controls[0].calls[0].service == "start" and paused.headline == "Paused"
     # A different segment is a new session and starts its own timer.
     note_sessions(memory, [paused])
     other = jobs(sc.manual_run("music_room", flag="segment", segment="Hall"), memory=memory)["vacuum.music_room"]
@@ -480,3 +481,40 @@ def test_a_detail_that_would_run_past_32_characters_drops_the_by_part() -> None:
         assert jobs_module._detail(sc.STEPHANIE, ["right"], memory) == "Your side"
     finally:
         entities.REQUESTER_NAMES.update(original)
+
+
+def test_paused_manual_runs_name_the_segment_or_just_say_paused() -> None:
+    segment = jobs(sc.manual_run("music_room", flag="segment", segment="Hall", vac="paused"))["vacuum.music_room"]
+    assert segment.headline == "Paused in Hall"
+    for flag in ("zone", "spot", "none"):
+        assert jobs(sc.manual_run("music_room", flag=flag, vac="paused"))["vacuum.music_room"].headline == "Paused"
+
+
+def test_tints_are_families_the_app_knows() -> None:
+    families = {job: style.tint for job, style in entities.STYLES.items()}
+    assert families == {"fan.guest": "air", "fan.master": "air", "dishwasher": "cleaning", "dryer": "cleaning",
+                        "washer": "cleaning", "hot_flash": "cooling", "vacuum.main_floor": "cleaning",
+                        "vacuum.music_room": "cleaning", "vacuum.theater_room": "cleaning"}
+
+
+def test_tap_links() -> None:
+    dash = "/sfenton-react-dash/home?path="
+    assert {job: style.url for job, style in entities.STYLES.items()} == {
+        "fan.guest": dash + "guest-bathroom", "fan.master": dash + "master-bathroom", "dishwasher": dash + "kitchen",
+        "dryer": dash + "garage", "washer": dash + "garage", "hot_flash": dash + "master-bedroom",
+        "vacuum.main_floor": dash + "living-room#robot-vacuum", "vacuum.music_room": dash + "music-room#robot-vacuum",
+        "vacuum.theater_room": dash + "theater-room#robot-vacuum"}
+    assert jobs(sc.fan("master"))["fan.master"].url == dash + "master-bathroom"
+    assert jobs(sc.main_floor())["vacuum.main_floor"].url == dash + "living-room#robot-vacuum"
+
+
+def test_hot_flash_links_to_the_side_or_the_bedroom_for_the_whole_bed() -> None:
+    dash = "/sfenton-react-dash/home?path=master-bedroom"
+    left, _ = cards(sc.hot_flash("holding", "idle"))
+    assert left[sc.STEPHEN].url == dash + "#stephens-bed"
+    right, _ = cards(sc.hot_flash("idle", "holding", by_right="steph"))
+    assert right[sc.STEPHANIE].url == dash + "#stephs-bed"
+    both, _ = cards(sc.hot_flash("holding", "holding", by_left="stephen", by_right="stephen"))
+    assert both[sc.STEPHEN].url == dash
+    done, _ = cards(sc.hot_flash("restore_pending", "idle"))
+    assert done[sc.STEPHEN].url == dash + "#stephens-bed"

@@ -75,20 +75,19 @@ class Style:
     url: str
 
 
-# ``symbol`` is a glyph id from the app's own set and ``tint`` a ``ColorFamily`` raw value (spec section 3).
-# VERIFY: the tint raw values other than ``air``, ``cleaning`` and ``water`` (the spec's examples), the glyph ids
-# other than the spec's ``fan`` and ``vacuum``, and every dashboard ``path=`` except ``kitchen`` and ``vacuums``.
+# ``symbol`` is a glyph id from the app's own set and ``tint`` a ``ColorFamily`` raw value the app knows (``air``,
+# ``cleaning``, ``cooling``; an unknown family draws grey). Verified against the app and the dashboard in review.
+DASH = "/sfenton-react-dash/home?path="
 STYLES: dict[str, Style] = {
-    JOB_FAN_GUEST: Style("Guest Bath Fan", "fan", "fan", "air", "/sfenton-react-dash/home?path=bathrooms"),
-    JOB_FAN_MASTER: Style("Master Bath Fan", "fan", "fan", "air", "/sfenton-react-dash/home?path=bathrooms"),
-    JOB_DISHWASHER: Style("Dishwasher", "dishwasher", "dishwasher", "water", "/sfenton-react-dash/home?path=kitchen"),
-    JOB_DRYER: Style("Dryer", "dryer", "dryer", "warm", "/sfenton-react-dash/home?path=laundry"),
-    JOB_WASHER: Style("Washing Machine", "washer", "washer", "water", "/sfenton-react-dash/home?path=laundry"),
-    JOB_HOT_FLASH: Style("Hot Flash", "hot_flash", "hot_flash", "warm", "/sfenton-react-dash/home?path=bedroom"),
-    JOB_VAC_MAIN: Style("Main Floor Vacuum", "vacuum", "vacuum", "cleaning", "/sfenton-react-dash/home?path=vacuums"),
-    JOB_VAC_MUSIC: Style("Music Room Vacuum", "vacuum", "vacuum", "cleaning", "/sfenton-react-dash/home?path=vacuums"),
-    JOB_VAC_THEATER: Style("Theater Room Vacuum", "vacuum", "vacuum", "cleaning",
-                           "/sfenton-react-dash/home?path=vacuums"),
+    JOB_FAN_GUEST: Style("Guest Bath Fan", "fan", "fan", "air", DASH + "guest-bathroom"),
+    JOB_FAN_MASTER: Style("Master Bath Fan", "fan", "fan", "air", DASH + "master-bathroom"),
+    JOB_DISHWASHER: Style("Dishwasher", "dishwasher", "dishwasher", "cleaning", DASH + "kitchen"),
+    JOB_DRYER: Style("Dryer", "dryer", "dryer", "cleaning", DASH + "garage"),
+    JOB_WASHER: Style("Washing Machine", "washer", "washer", "cleaning", DASH + "garage"),
+    JOB_HOT_FLASH: Style("Hot Flash", "hot_flash", "hot_flash", "cooling", DASH + "master-bedroom"),
+    JOB_VAC_MAIN: Style("Main Floor Vacuum", "vacuum", "vacuum", "cleaning", DASH + "living-room#robot-vacuum"),
+    JOB_VAC_MUSIC: Style("Music Room Vacuum", "vacuum", "vacuum", "cleaning", DASH + "music-room#robot-vacuum"),
+    JOB_VAC_THEATER: Style("Theater Room Vacuum", "vacuum", "vacuum", "cleaning", DASH + "theater-room#robot-vacuum"),
 }
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -249,17 +248,19 @@ class Side:
     requested_by: str
     cancel: str
     climate: str
+    #: The hot flash card's tap target for this side alone (Whole bed uses the bedroom page).
+    url: str = ""
 
 
 SIDES: dict[str, Side] = {
     "left": Side("left", "person.stephen_fenton", "stephen", "input_select.sleepypod_hot_flash_left_phase",
                  "timer.sleepypod_hot_flash_left", "input_datetime.sleepypod_hot_flash_left_restore_at",
                  "input_text.eight_sleep_stephen_hot_flash_requested_by",
-                 "input_button.eight_sleep_stephen_cancel_hot_flash", "climate.sleepypod_eight_pod_left_side"),
+                 "input_button.eight_sleep_stephen_cancel_hot_flash", "climate.sleepypod_eight_pod_left_side", DASH + "master-bedroom#stephens-bed"),
     "right": Side("right", "person.stephanie_hobart", "steph", "input_select.sleepypod_hot_flash_right_phase",
                   "timer.sleepypod_hot_flash_right", "input_datetime.sleepypod_hot_flash_right_restore_at",
                   "input_text.eight_sleep_steph_hot_flash_requested_by",
-                  "input_button.eight_sleep_steph_cancel_hot_flash", "climate.sleepypod_eight_pod_right_side"),
+                  "input_button.eight_sleep_steph_cancel_hot_flash", "climate.sleepypod_eight_pod_right_side", DASH + "master-bedroom#stephs-bed"),
 }
 #: ``requested_by`` value to the person it names, and the name shown on the card.
 REQUESTERS = {"stephen": "person.stephen_fenton", "steph": "person.stephanie_hobart"}

@@ -29,7 +29,7 @@
         "message": "Move it somewhere flat, then tap Resume.",
         "chips": []
       },
-      "url": "/sfenton-react-dash/home?path=vacuums"
+      "url": "/sfenton-react-dash/home?path=living-room#robot-vacuum"
     },
     "attributes-type": "HomeActivityAttributes",
     "attributes": {

@@ -17,7 +17,7 @@
           "title": "Stop"
         }
       ],
-      "url": "/sfenton-react-dash/home?path=bathrooms"
+      "url": "/sfenton-react-dash/home?path=guest-bathroom"
     },
     "attributes-type": "HomeActivityAttributes",
     "attributes": {
