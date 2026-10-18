@@ -195,10 +195,11 @@ PROBLEM_ICONS = frozenset({"alert", "door", "dock", "edge", "brush", "battery", 
                            "question", "door_dish"})
 #: Keys the relay understands in a v2 block; anything else is dropped. ``pending`` is the app's alone, so it is never
 #: forwarded. ``stale_ts`` becomes ``aps.stale-date``.
-KEYS_V2 = frozenset({"v", "phase", "headline", "detail", "value", "progress", "controls", "problem", "url", "notice", "stale_ts"})
+KEYS_V2 = frozenset({"v", "phase", "headline", "detail", "short", "value", "progress", "controls", "problem", "url", "notice", "stale_ts"})
 
 MAX_HEADLINE = 32
 MAX_DETAIL = 32
+MAX_SHORT = 10
 MAX_VALUE_TEXT = 16
 MAX_PROBLEM = 40
 MAX_MESSAGE = 90
@@ -295,7 +296,10 @@ def state_v2(block: Any, notes: list[str]) -> tuple[dict[str, Any], int | None]:
         state["headline"] = headline
     if detail := _text(block.get("detail"), MAX_DETAIL):
         state["detail"] = detail
-    state["value"] = _value_v2(block.get("value"), progress, notes)
+    if short := _text(block.get("short"), MAX_SHORT):
+        state["short"] = short
+    if block.get("value") is not None:  # a vacuum card has no time to show
+        state["value"] = _value_v2(block.get("value"), progress, notes)
     if progress is not None:
         state["progress"] = progress
     controls_raw = block.get("controls") or []
@@ -322,8 +326,8 @@ def state_v2(block: Any, notes: list[str]) -> tuple[dict[str, Any], int | None]:
 
 def default_stale_v2(state: dict[str, Any], now: int) -> int:
     """Ten minutes after a countdown ends, else half an hour from now."""
-    value = state["value"]
-    if value["kind"] == "countdown" and value["end_ts"] > now:
+    value = state.get("value") or {}
+    if value.get("kind") == "countdown" and value["end_ts"] > now:
         return value["end_ts"] + STALE_GRACE
     return now + OPEN_ENDED_STALE
 

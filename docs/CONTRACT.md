@@ -236,7 +236,8 @@ A `data.fenton_activity` block with `"v": 2` becomes the `content-state` after v
 | `phase` | `running`, `paused`, `waiting`, `problem` or `done` (anything else is refused) |
 | `headline` | optional, 32 characters |
 | `detail` | optional, 32 characters: a short line under the title (hot flash: "Your side", "Stephen's side", "Whole bed", plus " · by Steph" or " · by Home" when it fits) |
-| `value` | `{kind: countdown, end_ts, start_ts?}`, `{kind: countup, start_ts, paused_elapsed_s?}`, `{kind: percent}` (needs `progress`) or `{kind: text, text}` (16 characters); `estimated: true` optional |
+| `short` | optional, 10 characters: a word for the compact island when the card has no time (vacuums: the room or segment, "Area", "Spot", "Cleaning" or "Paused") |
+| `value` | optional (a vacuum card has none, and no `progress`). `{kind: countdown, end_ts, start_ts?}`, `{kind: countup, start_ts, paused_elapsed_s?}`, `{kind: percent}` (needs `progress`) or `{kind: text, text}` (16 characters); `estimated: true` optional |
 | `progress` | optional, 0 to 1 |
 | `controls` | at most 2 `{id, title, role?}`; at most 3 when `phase` is `problem`. Titles 20 characters. The first control is primary; `role: "secondary"` is kept on the others |
 | `problem` | present exactly when `phase` is `problem`: `{severity: critical\|warning, code, icon, problem (40), message (90), chips (at most 1, 20 characters), task_id?}`. An unknown `icon` reads `question` |

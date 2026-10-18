@@ -6,6 +6,7 @@
     "content-state": {
       "v": 2,
       "phase": "problem",
+      "short": "Paused",
       "value": {
         "kind": "text",
         "text": "Attention"
@@ -24,7 +25,7 @@
         "message": "Refill the clean water tank on the dock, then tap Resume.",
         "chips": []
       },
-      "url": "/sfenton-react-dash/home?path=vacuums"
+      "url": "/sfenton-react-dash/home?path=living-room#robot-vacuum"
     },
     "attributes-type": "HomeActivityAttributes",
     "attributes": {

@@ -25,7 +25,7 @@ from .entities import (
     coordinator_entities,
     style_for,
 )
-from .jobs import Ctx, Memory, as_complete, derive, note_hot_flash, note_sessions, signals
+from .jobs import Ctx, Memory, as_complete, derive, note_hot_flash, signals
 from .model import JobState, ProblemInfo, text
 from .problems import ProblemRecord, build_problem, kind_of
 from .slots import Candidate, Coalescer, allocate
@@ -109,7 +109,10 @@ def render(job: JobState, notice: str | None = None) -> dict[str, Any]:
         content["headline"] = job.headline
     if job.detail:
         content["detail"] = job.detail
-    content["value"] = dict(job.value)
+    if job.short:
+        content["short"] = job.short
+    if job.value is not None:
+        content["value"] = dict(job.value)
     if job.progress is not None:
         content["progress"] = round(job.progress, 3)
     controls = []
@@ -325,7 +328,6 @@ class Engine:
         ctx = Ctx(tz=ctx.tz, people=ctx.people, memory=self.memory, enabled=ctx.enabled)
         note_hot_flash(self.memory, states)
         jobs = derive(states, now, ctx)
-        note_sessions(self.memory, jobs)
         self._sync_problems(signals(states, now, ctx), now)
 
         running = {(job.tag, audience_key(job)): job for job in jobs if not job.complete}
@@ -481,7 +483,7 @@ class Engine:
             if key not in self._lingered_out:
                 plan.wake(until - now)
         for job in self.current:
-            if job.value.get("kind") == "countdown":
+            if job.value and job.value.get("kind") == "countdown":
                 plan.wake(job.value["end_ts"] - now + 1)
 
     def _push(self, webhook_id: str, tag: str, job: JobState, content: dict[str, Any], now: float, *,

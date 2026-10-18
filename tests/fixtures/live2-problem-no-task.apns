@@ -19,7 +19,7 @@
         "message": "Heading to the dock. It finishes Kitchen after charging.",
         "chips": []
       },
-      "url": "/sfenton-react-dash/home?path=vacuums"
+      "url": "/sfenton-react-dash/home?path=living-room#robot-vacuum"
     },
     "attributes-type": "HomeActivityAttributes",
     "attributes": {

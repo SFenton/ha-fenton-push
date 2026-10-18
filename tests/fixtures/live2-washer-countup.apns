@@ -10,9 +10,8 @@
         "kind": "countup",
         "start_ts": 1792248480
       },
-      "progress": 1.0,
       "controls": [],
-      "url": "/sfenton-react-dash/home?path=laundry"
+      "url": "/sfenton-react-dash/home?path=garage"
     },
     "attributes-type": "HomeActivityAttributes",
     "attributes": {
@@ -20,7 +19,7 @@
       "title": "Washing Machine",
       "kind": "washer",
       "symbol": "washer",
-      "tint": "water"
+      "tint": "cleaning"
     },
     "alert": {
       "title": "Washing Machine",

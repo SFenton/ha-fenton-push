@@ -24,7 +24,7 @@
       "title": "Dishwasher",
       "kind": "dishwasher",
       "symbol": "dishwasher",
-      "tint": "water"
+      "tint": "cleaning"
     },
     "alert": {
       "title": "Dishwasher",

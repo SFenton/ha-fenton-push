@@ -29,7 +29,7 @@
         "message": "The robot says \"Wheel tangled in a cable\". Check it, then tap Resume.",
         "chips": []
       },
-      "url": "/sfenton-react-dash/home?path=vacuums"
+      "url": "/sfenton-react-dash/home?path=music-room#robot-vacuum"
     },
     "attributes-type": "HomeActivityAttributes",
     "attributes": {

@@ -18,7 +18,7 @@
           "title": "Stop"
         }
       ],
-      "url": "/sfenton-react-dash/home?path=bedroom"
+      "url": "/sfenton-react-dash/home?path=master-bedroom"
     },
     "attributes-type": "HomeActivityAttributes",
     "attributes": {
@@ -26,7 +26,7 @@
       "title": "Hot Flash",
       "kind": "hot_flash",
       "symbol": "hot_flash",
-      "tint": "warm"
+      "tint": "cooling"
     },
     "alert": {
       "title": "Hot Flash",
