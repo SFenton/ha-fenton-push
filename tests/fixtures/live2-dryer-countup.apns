@@ -1,0 +1,37 @@
+{
+  "Simulator Target Bundle": "com.sfenton.home",
+  "aps": {
+    "timestamp": 1792249200,
+    "event": "start",
+    "content-state": {
+      "v": 2,
+      "phase": "running",
+      "value": {
+        "kind": "countup",
+        "start_ts": 1792247100
+      },
+      "progress": 1.0,
+      "controls": [],
+      "url": "/sfenton-react-dash/home?path=laundry"
+    },
+    "attributes-type": "HomeActivityAttributes",
+    "attributes": {
+      "tag": "job.dryer",
+      "title": "Dryer",
+      "kind": "dryer",
+      "symbol": "dryer",
+      "tint": "warm"
+    },
+    "alert": {
+      "title": "Dryer",
+      "body": "Dryer"
+    },
+    "input-push-token": 1,
+    "stale-date": 1792251000,
+    "relevance-score": 55.0
+  },
+  "fenton": {
+    "v": 2,
+    "tag": "job.dryer"
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "Simulator Target Bundle": "com.sfenton.home",
+  "aps": {
+    "timestamp": 1792249200,
+    "event": "start",
+    "content-state": {
+      "v": 2,
+      "phase": "problem",
+      "value": {
+        "kind": "text",
+        "text": "Attention"
+      },
+      "controls": [
+        {
+          "id": "resume",
+          "title": "Resume"
+        }
+      ],
+      "problem": {
+        "severity": "warning",
+        "code": "mop.clean_water_empty",
+        "icon": "water",
+        "problem": "Clean water tank empty",
+        "message": "Refill the clean water tank on the dock, then tap Resume.",
+        "chips": [
+          "Since 2:58 PM"
+        ]
+      },
+      "url": "/sfenton-react-dash/home?path=vacuums"
+    },
+    "attributes-type": "HomeActivityAttributes",
+    "attributes": {
+      "tag": "job.vacuum.main_floor",
+      "title": "Main Floor Vacuum",
+      "kind": "vacuum",
+      "symbol": "vacuum",
+      "tint": "cleaning"
+    },
+    "alert": {
+      "title": "Main Floor Vacuum",
+      "body": "Clean water tank empty. Refill the clean water tank on the dock, then tap Resume."
+    },
+    "input-push-token": 1,
+    "stale-date": 1792251000,
+    "relevance-score": 90.0
+  },
+  "fenton": {
+    "v": 2,
+    "tag": "job.vacuum.main_floor"
+  }
+}

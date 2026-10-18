@@ -1,0 +1,57 @@
+{
+  "Simulator Target Bundle": "com.sfenton.home",
+  "aps": {
+    "timestamp": 1792249200,
+    "event": "start",
+    "content-state": {
+      "v": 2,
+      "phase": "problem",
+      "value": {
+        "kind": "text",
+        "text": "Needs help"
+      },
+      "controls": [
+        {
+          "id": "resume",
+          "title": "Resume"
+        },
+        {
+          "id": "dock",
+          "title": "Dock",
+          "role": "secondary"
+        }
+      ],
+      "problem": {
+        "severity": "critical",
+        "code": "navigation.stuck",
+        "icon": "alert",
+        "problem": "Stuck in Kitchen",
+        "message": "Move it somewhere flat, then tap Resume.",
+        "chips": [
+          "Since 2:58 PM"
+        ]
+      },
+      "url": "/sfenton-react-dash/home?path=vacuums"
+    },
+    "attributes-type": "HomeActivityAttributes",
+    "attributes": {
+      "tag": "job.vacuum.main_floor",
+      "title": "Main Floor Vacuum",
+      "kind": "problem",
+      "symbol": "vacuum",
+      "tint": "cleaning"
+    },
+    "alert": {
+      "title": "Main Floor Vacuum",
+      "body": "Stuck in Kitchen. Move it somewhere flat, then tap Resume."
+    },
+    "sound": "default",
+    "input-push-token": 1,
+    "stale-date": 1792251000,
+    "relevance-score": 100.0
+  },
+  "fenton": {
+    "v": 2,
+    "tag": "job.vacuum.main_floor"
+  }
+}

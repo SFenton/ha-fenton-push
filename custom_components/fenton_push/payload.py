@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -17,10 +18,17 @@ from .live import (
     ATTRIBUTES_TYPE,
     LIVE_CONTRACT_VERSION,
     MAX_DISMISS_AFTER,
+    STATE_VERSION_V2,
+    activity_attributes,
+    block_version,
     default_stale,
+    default_stale_v2,
+    HOME_TAG,
     empty_state,
+    ended_state_v2,
     generic_state,
     home_state,
+    state_v2,
 )
 
 #: Bumped when the ``fenton`` block changes shape. Live Activity payloads carry ``LIVE_CONTRACT_VERSION`` instead.
@@ -111,8 +119,29 @@ def collapse_id(tag: str) -> str:
     return hashlib.sha256(tag.encode()).hexdigest()
 
 
-def build(body: dict[str, Any], *, critical_enabled: bool, now: float | None = None) -> ApnsRequest:
-    """Map a ``mobile_app`` push body to an APNs request."""
+class Timestamps:
+    """``aps.timestamp`` per activity, strictly increasing: ``max(ceil(now), last + 1)``.
+
+    ActivityKit drops an update whose timestamp is not newer than the content it shows, and the app's optimistic write
+    after a button press is stamped ``floor(now)``. Rounding up and never repeating one keeps a confirmation newer than
+    the optimistic write and pushes for one activity from ever tying. Not persisted: a restart resets to the clock.
+    """
+
+    def __init__(self) -> None:
+        self._last: dict[str, int] = {}
+
+    def next(self, key: str, now: float) -> int:
+        stamp = max(math.ceil(now), self._last.get(key, 0) + 1)
+        self._last[key] = stamp
+        return stamp
+
+
+def build(body: dict[str, Any], *, critical_enabled: bool, now: float | None = None,
+          timestamps: Timestamps | None = None, ts_key: str | None = None) -> ApnsRequest:
+    """Map a ``mobile_app`` push body to an APNs request.
+
+    ``timestamps`` and ``ts_key`` (the device and tag) make a Live Activity's ``timestamp`` strictly increasing.
+    """
     if not isinstance(body, dict):
         raise PayloadError("invalid_body", "Body must be a JSON object")
     data = body.get("data") or {}
@@ -123,7 +152,7 @@ def build(body: dict[str, Any], *, critical_enabled: bool, now: float | None = N
     tag = _string(data.get("tag"))
 
     if body.get("live_activity_token"):
-        return _live_activity(body, data, message, tag, now)
+        return _live_activity(body, data, message, tag, now, timestamps, ts_key)
     if data.get("live_update"):
         return ApnsRequest(push_type="liveactivity", priority=5, payload={}, dropped=True,
                            notes=["live_update without a live_activity_token dropped (this device cannot show an activity)"])
@@ -282,7 +311,7 @@ def _actions(value: Any, notes: list[str]) -> list[dict[str, Any]]:
 
 
 def _live_activity(body: dict[str, Any], data: dict[str, Any], message: str, tag: str | None,
-                   now: float | None) -> ApnsRequest:
+                   now: float | None, timestamps: Timestamps | None = None, ts_key: str | None = None) -> ApnsRequest:
     """A Live Activity start, update or end (contract v2, section 6).
 
     ``mobile_app`` decides the event (start with the push-to-start token, update with the activity's token, end on
@@ -291,7 +320,8 @@ def _live_activity(body: dict[str, Any], data: dict[str, Any], message: str, tag
     """
     if not tag:
         raise PayloadError("tag_required", "Live Activities need a tag")
-    timestamp = int(now if now is not None else time.time())
+    clock = now if now is not None else time.time()
+    timestamp = timestamps.next(ts_key or tag, clock) if timestamps is not None else math.ceil(clock)
     event = _string(data.get("event")) or "update"
     if event not in ("start", "update", "end"):
         raise PayloadError("invalid_event", f"Unknown Live Activity event {event!r}")
@@ -300,28 +330,36 @@ def _live_activity(body: dict[str, Any], data: dict[str, Any], message: str, tag
 
     stale_ts: int | None = None
     block = data.get("fenton_activity")
+    version = block_version(block)
     if block is not None:
         try:
-            state, stale_ts = home_state(block, notes)
+            state, stale_ts = (state_v2 if version == STATE_VERSION_V2 else home_state)(block, notes)
         except ValueError as err:
             raise PayloadError("invalid_activity", str(err)) from err
     elif event == "end" and message in COMMANDS:
-        state = empty_state()
+        # ``clear_notification``: the Home activity (v1) ends with an empty list, a per-job activity with a v2 stub.
+        state = empty_state() if tag == HOME_TAG else ended_state_v2()
     else:
         state = generic_state(tag, title, message, data, timestamp, notes)
         if event == "end":
             for job in state["jobs"]:
                 job["phase"] = "done"
                 job.pop("end_ts", None)
-    kind = "home" if block is not None else "generic"
+    kind = "home" if block is not None and version != STATE_VERSION_V2 else "generic"
 
     aps: dict[str, Any] = {"timestamp": timestamp, "event": event, "content-state": state}
     alerting = False
     if event == "start":
         aps["attributes-type"] = ATTRIBUTES_TYPE
-        aps["attributes"] = {"tag": tag, "title": title or "Home", "kind": kind}
-        # A start must alert (Apple); this one is quiet: no sound key. iOS 18 hands the new activity's token back.
-        aps["alert"] = {"title": title or "Home", "body": message or title or "Started"}
+        attributes: dict[str, Any] = {"tag": tag, "title": _title(title, version), "kind": kind}
+        if version == STATE_VERSION_V2:
+            attributes.update(activity_attributes(data.get("fenton_attributes")))
+        aps["attributes"] = attributes
+        # A start must alert (Apple); this one is quiet unless ``live_alert`` asks for the default sound (a critical
+        # problem that starts the card). iOS 18 hands the new activity's token back.
+        aps["alert"] = {"title": _title(title, version), "body": message or title or "Started"}
+        if data.get("live_alert"):
+            aps["sound"] = "default"
         aps["input-push-token"] = 1
         alerting = True
     elif data.get("live_alert"):
@@ -331,7 +369,8 @@ def _live_activity(body: dict[str, Any], data: dict[str, Any], message: str, tag
     if event == "end":
         aps["dismissal-date"] = timestamp + _dismiss_after(data.get("dismiss_after"), notes)
     else:
-        aps["stale-date"] = stale_ts if stale_ts and stale_ts > timestamp else default_stale(state, timestamp)
+        default = default_stale_v2(state, timestamp) if version == STATE_VERSION_V2 else default_stale(state, timestamp)
+        aps["stale-date"] = stale_ts if stale_ts and stale_ts > timestamp else default
     if (score := data.get("relevance_score")) is not None:
         try:
             aps["relevance-score"] = float(score)
@@ -346,6 +385,13 @@ def _live_activity(body: dict[str, Any], data: dict[str, Any], message: str, tag
     priority = 10 if event in ("start", "end") or alerting or data.get("urgent") else 5
     return ApnsRequest(push_type="liveactivity", priority=priority, payload=payload, notes=notes,
                        topic_suffix=".push-type.liveactivity", token_key="live_activity_token")
+
+
+def _title(title: str, version: int) -> str:
+    """The activity's static title: the device's name for a job (capped at 32), "Home" for the old aggregate."""
+    if version == STATE_VERSION_V2:
+        return (title or "Home")[:32]
+    return title or "Home"
 
 
 def _dismiss_after(value: Any, notes: list[str]) -> int:

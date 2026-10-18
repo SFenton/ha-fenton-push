@@ -11,6 +11,7 @@ import pytest
 from fenton_push.payload import DYNAMIC_CATEGORY, MAX_PAYLOAD_BYTES, PayloadError, build, collapse_id
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import live2_samples  # noqa: E402
 import samples  # noqa: E402
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
@@ -139,6 +140,8 @@ def fixture_payload(name: str, body: dict, critical: bool) -> dict:
 def expected_fixtures() -> dict[str, dict]:
     fixtures = {name: fixture_payload(name, body, False) for name, body in samples.FIXTURES.items()}
     fixtures["doorbell-critical"] = fixture_payload("doorbell-critical", samples.DOORBELL, True)
+    for name, body in live2_samples.cases().items():
+        fixtures[name] = fixture_payload(name, body, False)
     return fixtures
 
 

@@ -1,0 +1,42 @@
+{
+  "Simulator Target Bundle": "com.sfenton.home",
+  "aps": {
+    "timestamp": 1792249200,
+    "event": "start",
+    "content-state": {
+      "v": 2,
+      "phase": "running",
+      "value": {
+        "kind": "countdown",
+        "end_ts": 1792250700,
+        "start_ts": 1792248900
+      },
+      "controls": [
+        {
+          "id": "stop",
+          "title": "Stop"
+        }
+      ],
+      "url": "/sfenton-react-dash/home?path=bathrooms"
+    },
+    "attributes-type": "HomeActivityAttributes",
+    "attributes": {
+      "tag": "job.fan.guest",
+      "title": "Guest Bath Fan",
+      "kind": "fan",
+      "symbol": "fan",
+      "tint": "air"
+    },
+    "alert": {
+      "title": "Guest Bath Fan",
+      "body": "Guest Bath Fan"
+    },
+    "input-push-token": 1,
+    "stale-date": 1792251300,
+    "relevance-score": 67.5
+  },
+  "fenton": {
+    "v": 2,
+    "tag": "job.fan.guest"
+  }
+}

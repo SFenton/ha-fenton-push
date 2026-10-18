@@ -1,0 +1,42 @@
+{
+  "Simulator Target Bundle": "com.sfenton.home",
+  "aps": {
+    "timestamp": 1792249200,
+    "event": "start",
+    "content-state": {
+      "v": 2,
+      "phase": "running",
+      "value": {
+        "kind": "countdown",
+        "end_ts": 1792251720,
+        "start_ts": 1792241200
+      },
+      "controls": [
+        {
+          "id": "stop",
+          "title": "Stop"
+        }
+      ],
+      "url": "/sfenton-react-dash/home?path=kitchen"
+    },
+    "attributes-type": "HomeActivityAttributes",
+    "attributes": {
+      "tag": "job.dishwasher",
+      "title": "Dishwasher",
+      "kind": "dishwasher",
+      "symbol": "dishwasher",
+      "tint": "water"
+    },
+    "alert": {
+      "title": "Dishwasher",
+      "body": "Dishwasher"
+    },
+    "input-push-token": 1,
+    "stale-date": 1792252320,
+    "relevance-score": 59.0
+  },
+  "fenton": {
+    "v": 2,
+    "tag": "job.dishwasher"
+  }
+}

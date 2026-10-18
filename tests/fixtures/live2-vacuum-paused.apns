@@ -1,0 +1,36 @@
+{
+  "Simulator Target Bundle": "com.sfenton.home",
+  "aps": {
+    "timestamp": 1792249200,
+    "event": "update",
+    "content-state": {
+      "v": 2,
+      "phase": "paused",
+      "headline": "Cleaning Kitchen",
+      "value": {
+        "kind": "countup",
+        "start_ts": 1792248300,
+        "paused_elapsed_s": 300
+      },
+      "progress": 1.0,
+      "controls": [
+        {
+          "id": "resume",
+          "title": "Resume"
+        },
+        {
+          "id": "dock",
+          "title": "Dock",
+          "role": "secondary"
+        }
+      ],
+      "url": "/sfenton-react-dash/home?path=vacuums"
+    },
+    "stale-date": 1792251000,
+    "relevance-score": 55.0
+  },
+  "fenton": {
+    "v": 2,
+    "tag": "job.vacuum.main_floor"
+  }
+}
