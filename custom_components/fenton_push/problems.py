@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, tzinfo
+from datetime import tzinfo
 
 from .model import Control, ProblemInfo
 
@@ -147,15 +147,6 @@ def quote_message(raw: str) -> str:
         raw = _clip(raw, len(raw) - 4)
 
 
-def time_chip(since: float | None, tz: tzinfo | None) -> str | None:
-    """"Since 3:42 PM" in local time, or None when the start isn't known."""
-    if not since:
-        return None
-    moment = datetime.fromtimestamp(since, tz)
-    hour = moment.hour % 12 or 12
-    return f"Since {hour}:{moment.minute:02d} {'AM' if moment.hour < 12 else 'PM'}"
-
-
 def _fill(template: str, room: str | None, without_room: str | None) -> str:
     """``template`` with its ``{room}``, or the wording for an unknown room."""
     if "{room}" not in template:
@@ -201,8 +192,7 @@ def build_problem(
         problem = _fill(row.problem, room, row.problem_noroom)
         text = _fill(row.message, room, row.message_noroom)
         severity, icon, buttons = row.severity, row.icon, row.buttons
-        chip = time_chip(since, tz)
-        chips = (chip,) if chip else ()
+        chips = ()
     elif kind == "numbered":
         number = _VENDOR_CODE.match(code).group(1)  # type: ignore[union-attr]
         problem, text = UNKNOWN_PROBLEM, "Check the robot, then tap Resume."

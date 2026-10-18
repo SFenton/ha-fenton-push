@@ -93,6 +93,8 @@ class JobState:
     phase: str  # running | paused | waiting | done | problem
     value: Mapping[str, Any]
     headline: str | None = None
+    #: A short line under the title (hot flash: whose side, and who started it).
+    detail: str | None = None
     progress: float | None = None
     controls: tuple[Control, ...] = ()
     url: str | None = None

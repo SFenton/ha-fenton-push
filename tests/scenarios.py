@@ -58,11 +58,13 @@ def fan(room: str = "guest", *, ends_in: float = 1500, started_ago: float = 300)
 
 
 def dishwasher(op: str = "run", *, finish_in: float | None = 2520, progress: float | None = None,
-               remote: bool = True) -> States:
+               remote: bool = True, start_in: float | None = None) -> States:
     spec: dict[str, Any] = {
         "sensor__dishwasher_operation_state": (op, {}, NOW - 8000),
         "binary_sensor__dishwasher_remote_control": "on" if remote else "off",
     }
+    if start_in is not None:
+        spec["number__dishwasher_start_in_relative"] = str(start_in)
     spec["sensor__dishwasher_program_finish_time"] = iso(NOW + finish_in) if finish_in is not None else "unavailable"
     if progress is not None:
         spec["sensor__dishwasher_program_progress"] = str(progress)
@@ -93,22 +95,50 @@ def main_floor(vac: str = "cleaning", *, room_id: str = "kitchen", phase: str = 
     })
 
 
-def main_floor_issue(code: str, *, status: str = "active", room_id: str = "kitchen", vac: str = "error") -> States:
+def issue(code: str, raw: str | None = None, *, reported: float | None = None) -> dict[str, Any]:
+    """A status sensor's ``current_issue`` while a problem is active."""
+    return {"code": code, "raw": raw or code, "reported_at": iso(NOW - 120 if reported is None else reported),
+            "provenance": "coordinator"}
+
+
+CLEAR = {"status": "clear"}
+
+
+def main_floor_issue(code: str, *, room_id: str = "kitchen", vac: str = "error", clear: bool = False) -> States:
     return main_floor(vac, room_id=room_id, phase="cleaning", **{
-        "sensor__main_floor_vacuum_status": ("error", {"current_issue": {"code": code, "status": status,
-                                                                          "since": iso(NOW - 120)}})})
+        "sensor__main_floor_vacuum_status": ("clear" if clear else "error", {"current_issue": CLEAR if clear else issue(code)})})
 
 
-def manual_run(robot: str = "music_room", *, flag: str = "none", vac: str = "cleaning", **attrs: Any) -> States:
-    return states(**{
-        f"vacuum__valetudo_{robot}": (vac, {}, NOW - 300),
-        f"sensor__valetudo_{robot}_status_flag": (flag, attrs),
-    })
+ROBOT_IDS = {"music_room": "elatedusedram", "theater_room": "politefatherlykingfisher", "main_floor": "exaltedsneakydeer"}
+
+
+def manual_run(robot: str = "music_room", *, flag: str = "none", vac: str = "cleaning", segment: str | None = None) -> States:
+    rid = ROBOT_IDS[robot]
+    spec: dict[str, Any] = {
+        f"vacuum__valetudo_{rid}": (vac, {}, NOW - 300),
+        f"sensor__valetudo_{rid}_status_flag": flag,
+    }
+    if segment is not None:
+        spec[SEGMENT_SENSORS[robot]] = (segment, {"segment_id": "16"})
+    return states(**spec)
+
+
+SEGMENT_SENSORS = {"music_room": "sensor__music_room_music_room_robot_vacuum_estimated_segment",
+                   "theater_room": "sensor__theater_room_vacuum_estimated_segment_2",
+                   "main_floor": "sensor__main_floor_robot_vacuum_estimated_segment"}
+
+
+def robot_issue(code: str, raw: str | None = None, robot: str = "music_room") -> States:
+    """The robot's status sensor reports an active issue and the robot has stopped."""
+    return states(**{f"vacuum__valetudo_{ROBOT_IDS[robot]}": ("error", {}, NOW - 60),
+                     f"sensor__{robot}_vacuum_status": ("error", {"current_issue": issue(code, raw)})})
 
 
 def robot_error(raw: str, robot: str = "music_room") -> States:
-    return states(**{f"vacuum__valetudo_{robot}": ("error", {}, NOW - 60),
-                     f"sensor__valetudo_{robot}_error": (raw, {}, NOW - 60)})
+    """No status sensor at all (it is missing): only the robot's own error text, mapped by keyword."""
+    rid = ROBOT_IDS[robot]
+    return states(**{f"vacuum__valetudo_{rid}": ("error", {}, NOW - 60),
+                     f"sensor__valetudo_{rid}_error": (raw, {}, NOW - 60)})
 
 
 # -- Hot flash ----------------------------------------------------------------------------------------------------------
@@ -124,8 +154,8 @@ def hot_flash(left: str = "idle", right: str = "idle", *, by_left: str = "stephe
         "timer__sleepypod_hot_flash_right": ("active", {"finishes_at": iso(NOW + right_ends_in)}),
         "input_text__eight_sleep_stephen_hot_flash_requested_by": by_left,
         "input_text__eight_sleep_steph_hot_flash_requested_by": by_right,
-        "climate__sleepypod_left": ("heat_cool", {"current_temperature": temp}),
-        "climate__sleepypod_right": ("heat_cool", {"current_temperature": temp}),
+        "climate__sleepypod_eight_pod_left_side": ("heat_cool", {"current_temperature": temp}),
+        "climate__sleepypod_eight_pod_right_side": ("heat_cool", {"current_temperature": temp}),
         "binary_sensor__effective_vacation_mode": "on" if vacation else "off",
     }
     if away:

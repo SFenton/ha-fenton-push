@@ -6,7 +6,7 @@
     "content-state": {
       "v": 2,
       "phase": "running",
-      "headline": "Hot Flash · Your side",
+      "detail": "Your side",
       "value": {
         "kind": "countdown",
         "end_ts": 1792250000,

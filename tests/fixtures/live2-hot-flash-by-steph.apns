@@ -6,7 +6,7 @@
     "content-state": {
       "v": 2,
       "phase": "running",
-      "headline": "Hot Flash · Your side · by Steph",
+      "detail": "Your side · by Steph",
       "value": {
         "kind": "countdown",
         "end_ts": 1792250000,
@@ -30,7 +30,7 @@
     },
     "alert": {
       "title": "Hot Flash",
-      "body": "Hot Flash · Your side · by Steph"
+      "body": "Hot Flash"
     },
     "input-push-token": 1,
     "stale-date": 1792250600,

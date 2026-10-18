@@ -104,8 +104,11 @@ def test_dishwasher_pause_offers_resume_then_stop() -> None:
 def test_dishwasher_delayed_start_waits() -> None:
     job = jobs(sc.dishwasher("delayedstart"))["dishwasher"]
     assert job.phase == "waiting" and job.value == {"kind": "text", "text": "Delayed start"}
-    later = sc.dishwasher("delayedstart").with_(sensor__dishwasher_program_start_time=sc.iso(NOW + 8400))
+    # The start is when the state changed (8000 s ago) plus the relative start in seconds, when that is above zero.
+    later = sc.dishwasher("delayedstart", start_in=8000 + 8400)
     assert jobs(later)["dishwasher"].value == {"kind": "text", "text": "Starts 5:20 PM"}
+    assert jobs(sc.dishwasher("delayedstart", start_in=0))["dishwasher"].value["text"] == "Delayed start"
+    assert jobs(sc.dishwasher("delayedstart", start_in=100))["dishwasher"].value["text"] == "Delayed start", "already past"
 
 
 @pytest.mark.parametrize("op", ["ready", "inactive", "aborting", "unavailable"])
@@ -151,19 +154,26 @@ def test_main_floor_names_a_room_by_its_last_cleaned_sensor_or_its_id() -> None:
     assert jobs(snapshot)["vacuum.main_floor"].headline == "Cleaning Living Room"
 
 
-def test_coordinator_pause_and_dock_use_the_coordinator_services() -> None:
+def test_pause_and_resume_are_vacuum_services_and_dock_cancels_the_coordinators_session() -> None:
     job = jobs(sc.main_floor())["vacuum.main_floor"]
     pause, dock = job.controls
-    assert pause.calls[0].domain == "valetudo_vacuum_coordinator" and pause.calls[0].service == "set_paused"
-    assert pause.calls[0].data["paused"] is True and pause.expect[0].met("paused")
-    assert dock.calls[0].service == "cancel_session" and dock.expect[0].met("returning") and dock.expect[0].met("docked")
+    # ``set_paused`` pauses the scheduler, not the robot; the coordinator watches the robot itself.
+    assert (pause.calls[0].domain, pause.calls[0].service) == ("vacuum", "pause")
+    assert pause.calls[0].data == {"entity_id": "vacuum.valetudo_exaltedsneakydeer"} and pause.expect[0].met("paused")
+    assert (dock.calls[0].domain, dock.calls[0].service) == ("valetudo_vacuum_coordinator", "cancel_session")
+    assert dict(dock.calls[0].data) == {"reason": "live_activity"}
+    assert dock.expect[0].met("returning") and dock.expect[0].met("docked")
+    # With no automatic session running, Dock is the robot's own return.
+    manual = sc.main_floor(auto=False, room_id="", phase="idle")
+    manual_dock = jobs(manual)["vacuum.main_floor"].controls[1]
+    assert (manual_dock.calls[0].domain, manual_dock.calls[0].service) == ("vacuum", "return_to_base")
 
 
 def test_paused_room_freezes_the_time_and_offers_resume() -> None:
     job = jobs(sc.main_floor("paused", changed=NOW - 300))["vacuum.main_floor"]
     assert job.phase == "paused" and job.value == {"kind": "countup", "start_ts": NOW - 900, "paused_elapsed_s": 600}
     resume = job.controls[0]
-    assert resume.id == "resume" and resume.calls[0].data["paused"] is False and resume.outcome == "update"
+    assert resume.id == "resume" and resume.calls[0].service == "start" and resume.outcome == "update"
 
 
 def test_a_room_change_is_a_new_session_and_between_rooms_there_is_no_card() -> None:
@@ -178,20 +188,33 @@ def test_resumed_cleaning_counts() -> None:
     assert "vacuum.main_floor" not in jobs(sc.main_floor(phase="travelling"))
 
 
-@pytest.mark.parametrize(("flag", "attrs", "headline"), [
-    ("segment", {"segment_name": "Hall"}, "Vacuuming Hall"),
-    ("segment", {}, "Vacuuming"),
-    ("zone", {}, "Cleaning Music Room area"),
-    ("spot", {}, "Spot cleaning"),
-    ("none", {}, "Cleaning Music Room"),
+@pytest.mark.parametrize(("flag", "segment", "headline"), [
+    ("segment", "Hall", "Vacuuming Hall"),
+    ("segment", None, "Vacuuming"),
+    ("zone", None, "Cleaning Music Room area"),
+    ("spot", None, "Spot cleaning"),
+    ("none", None, "Cleaning Music Room"),
+    ("resumable", None, "Cleaning Music Room"),
 ])
-def test_manual_runs_name_what_the_status_flag_says(flag, attrs, headline) -> None:
-    job = jobs(sc.manual_run("music_room", flag=flag, **attrs))["vacuum.music_room"]
+def test_manual_runs_name_what_the_status_flag_says(flag, segment, headline) -> None:
+    job = jobs(sc.manual_run("music_room", flag=flag, segment=segment))["vacuum.music_room"]
     assert job.headline == headline
     assert job.value == {"kind": "countup", "start_ts": NOW - 300}
     # Plain vacuum services, no coordinator.
     assert job.controls[0].calls[0].domain == "vacuum" and job.controls[0].calls[0].service == "pause"
+    assert job.controls[0].calls[0].data == {"entity_id": "vacuum.valetudo_elatedusedram"}
     assert job.controls[1].calls[0].service == "return_to_base"
+
+
+@pytest.mark.parametrize(("robot", "entity", "segment_sensor"), [
+    ("music_room", "vacuum.valetudo_elatedusedram", "sensor.music_room_music_room_robot_vacuum_estimated_segment"),
+    ("theater_room", "vacuum.valetudo_politefatherlykingfisher", "sensor.theater_room_vacuum_estimated_segment_2"),
+    ("main_floor", "vacuum.valetudo_exaltedsneakydeer", "sensor.main_floor_robot_vacuum_estimated_segment"),
+])
+def test_each_robot_reads_its_own_entities(robot, entity, segment_sensor) -> None:
+    job = jobs(sc.manual_run(robot, flag="segment", segment="Pantry"))[f"vacuum.{robot}"]
+    assert job.headline == "Vacuuming Pantry" and job.controls[0].calls[0].data == {"entity_id": entity}
+    assert entities.ROBOTS[f"vacuum.{robot}"].segment_sensor == segment_sensor
 
 
 def test_manual_run_resume_uses_vacuum_start_and_keeps_its_start_across_a_pause() -> None:
@@ -199,12 +222,12 @@ def test_manual_run_resume_uses_vacuum_start_and_keeps_its_start_across_a_pause(
     running = jobs(sc.manual_run("music_room", flag="spot"), memory=memory)["vacuum.music_room"]
     note_sessions(memory, [running])
     paused = jobs(sc.manual_run("music_room", flag="spot", vac="paused").with_(
-        vacuum__valetudo_music_room=("paused", {}, NOW - 60)), memory=memory)["vacuum.music_room"]
+        vacuum__valetudo_elatedusedram=("paused", {}, NOW - 60)), memory=memory)["vacuum.music_room"]
     assert paused.value == {"kind": "countup", "start_ts": NOW - 300, "paused_elapsed_s": 240}
     assert paused.controls[0].calls[0].service == "start"
     # A different segment is a new session and starts its own timer.
     note_sessions(memory, [paused])
-    other = jobs(sc.manual_run("music_room", flag="segment", segment_name="Hall"), memory=memory)["vacuum.music_room"]
+    other = jobs(sc.manual_run("music_room", flag="segment", segment="Hall"), memory=memory)["vacuum.music_room"]
     assert other.session_key == "segment:Hall" and other.value["start_ts"] == NOW - 300
 
 
@@ -235,29 +258,48 @@ def found(snapshot: States):
     return {s.job_id: s for s in signals(snapshot, NOW, sc.ctx())}
 
 
-def test_the_coordinators_current_issue_is_the_main_floors_problem() -> None:
+def test_the_status_sensors_current_issue_is_the_problem() -> None:
     signal = found(sc.main_floor_issue("navigation.stuck"))["vacuum.main_floor"]
-    assert (signal.code, signal.room, signal.since) == ("navigation.stuck", "Kitchen", NOW - 120)
-    assert "vacuum.main_floor" not in found(sc.main_floor_issue("navigation.stuck", status="resolved"))
+    assert (signal.code, signal.raw, signal.room, signal.since) == ("navigation.stuck", "navigation.stuck", "Kitchen", NOW - 120)
+    assert "vacuum.main_floor" not in found(sc.main_floor_issue("navigation.stuck", clear=True))
     assert "vacuum.main_floor" not in found(sc.main_floor())
 
 
-def test_a_robot_without_a_coordinator_maps_its_own_error_text() -> None:
+def test_every_robot_has_a_status_sensor_with_the_same_contract() -> None:
+    for robot in ("main_floor", "music_room", "theater_room"):
+        snapshot = sc.robot_issue("maintenance.main_brush_jammed", "Main brush jammed", robot)
+        signal = found(snapshot)[f"vacuum.{robot}"]
+        assert (signal.code, signal.raw) == ("maintenance.main_brush_jammed", "Main brush jammed")
+    # An issue read defensively: a code missing falls back to the raw text, nothing usable is no problem.
+    only_raw = sc.states(sensor__music_room_vacuum_status=("error", {"current_issue": {"raw": "Unknown error 12"}}))
+    assert found(only_raw)["vacuum.music_room"].code == "vendor.unknown_error_12"
+    for junk in ("text", {"code": ""}, {"status": "clear"}, None):
+        snapshot = sc.states(sensor__music_room_vacuum_status=("error", {"current_issue": junk}))
+        assert "vacuum.music_room" not in found(snapshot)
+    since = sc.states(sensor__music_room_vacuum_status=("error", {"current_issue": {"code": "dock.cover_open", "since": sc.iso(NOW)}}))
+    assert found(since)["vacuum.music_room"].since == NOW
+
+
+def test_without_a_status_sensor_a_robot_maps_its_own_error_text() -> None:
     assert found(sc.robot_error("Unknown error 12"))["vacuum.music_room"].code == "vendor.unknown_error_12"
     assert found(sc.robot_error("Unknown error 75"))["vacuum.music_room"].code == "power.critical_battery"
     assert found(sc.robot_error("Wheel tangled"))["vacuum.music_room"].code == "unmapped.wheel_tangled"
     assert found(sc.robot_error("Wheel tangled"))["vacuum.music_room"].raw == "Wheel tangled"
     assert "vacuum.music_room" not in found(sc.robot_error("No error"))
+    # But when the status sensor is there and clear, the robot's error text is not consulted.
+    clear = sc.robot_error("Wheel tangled").with_(sensor__music_room_vacuum_status=("clear", {"current_issue": {"status": "clear"}}))
+    assert "vacuum.music_room" not in found(clear)
 
 
-def test_the_vacuum_only_fallback_helper() -> None:
-    snapshot = sc.main_floor().with_(input_boolean__main_floor_vacuum_fallback=("on", {}, NOW - 50),
-                                     input_text__main_floor_vacuum_error_message="Mop pads not found")
-    signal = found(snapshot)["vacuum.main_floor"]
+def test_the_vacuum_only_fallback_helper_is_per_robot_and_optional() -> None:
+    snapshot = sc.states(input_boolean__music_room_vacuum_fallback_active=("on", {}, NOW - 50),
+                         input_text__music_room_vacuum_error_message="Mop pads not found")
+    signal = found(snapshot)["vacuum.music_room"]
     assert signal.code == "mop.vacuum_only_fallback" and signal.raw == "Mop pads not found"
+    assert "vacuum.main_floor" not in found(snapshot) and "vacuum.theater_room" not in found(snapshot)
     # A real issue wins over the fallback.
-    both = sc.main_floor_issue("navigation.stuck").with_(input_boolean__main_floor_vacuum_fallback="on")
-    assert found(both)["vacuum.main_floor"].code == "navigation.stuck"
+    both = snapshot.with_(sensor__music_room_vacuum_status=("error", {"current_issue": sc.issue("navigation.stuck")}))
+    assert found(both)["vacuum.music_room"].code == "navigation.stuck"
 
 
 @pytest.mark.parametrize(("op", "code"), [("actionrequired", "dishwasher.action_required"),
@@ -285,12 +327,12 @@ def test_hot_flash_cooling_shows_text_and_a_ring_toward_56_degrees() -> None:
     snapshot = sc.hot_flash("cooling", "idle", temp=70)
     memory = Memory()
     note_hot_flash(memory, snapshot)  # the bed was 70 when it began
-    cooled = snapshot.with_(climate__sleepypod_left=("heat_cool", {"current_temperature": 63.0}))
+    cooled = snapshot.with_(climate__sleepypod_eight_pod_left_side=("heat_cool", {"current_temperature": 63.0}))
     note_hot_flash(memory, cooled)
     by_person, _ = cards(cooled, memory)
     job = by_person[sc.STEPHEN]
     assert job.value == {"kind": "text", "text": "Cooling"} and job.relevance == 70
-    assert job.progress == 0.5 and job.headline == "Hot Flash · Your side"
+    assert job.progress == 0.5 and job.headline is None and job.detail == "Your side"
     assert job.audience == frozenset({sc.STEPHEN}) and job.title == "Hot Flash"
 
 
@@ -311,13 +353,13 @@ def test_hot_flash_stop_presses_the_sides_cancel_button() -> None:
 def test_hot_flash_started_by_the_other_person_says_so() -> None:
     by_person, _ = cards(sc.hot_flash("holding", "idle", by_left="steph"))
     assert set(by_person) == {sc.STEPHEN, sc.STEPHANIE}
-    assert by_person[sc.STEPHEN].headline == "Hot Flash · Your side · by Steph"
-    assert by_person[sc.STEPHANIE].headline == "Hot Flash · Stephen's side"
+    assert by_person[sc.STEPHEN].detail == "Your side · by Steph"
+    assert by_person[sc.STEPHANIE].detail == "Stephen's side" and by_person[sc.STEPHANIE].headline is None
 
 
 def test_hot_flash_started_by_an_automation_is_for_the_owner_only() -> None:
     by_person, _ = cards(sc.hot_flash("holding", "idle", by_left="unattributed"))
-    assert set(by_person) == {sc.STEPHEN} and by_person[sc.STEPHEN].headline == "Hot Flash · Your side · by Home"
+    assert set(by_person) == {sc.STEPHEN} and by_person[sc.STEPHEN].detail == "Your side · by Home"
     junk, _ = cards(sc.hot_flash("holding", "idle", by_left="nobody"))
     assert set(junk) == {sc.STEPHEN}
 
@@ -327,11 +369,10 @@ def test_hot_flash_whole_bed_uses_the_later_end_and_stops_both_sides() -> None:
                             right_ends_in=860)
     by_person, _ = cards(snapshot)
     job = by_person[sc.STEPHEN]
-    assert job.headline == "Hot Flash · Whole bed" and job.value["end_ts"] == NOW + 860
+    assert job.detail == "Whole bed" and job.headline is None and job.value["end_ts"] == NOW + 860
     assert len(job.controls[0].calls) == 2 and len(job.controls[0].expect) == 2
-    # Steph owns the right side and Stephen asked for it: she sees her side, started by Stephen. "Hot Flash · " would
-    # push the headline past 32 characters, so the line stands alone.
-    assert by_person[sc.STEPHANIE].headline == "Your side · by Stephen"
+    # Steph owns the right side and Stephen asked for it: she sees her side, started by Stephen.
+    assert by_person[sc.STEPHANIE].detail == "Your side · by Stephen"
 
 
 def test_hot_flash_whole_bed_cooling_wins_until_both_hold() -> None:
@@ -343,7 +384,7 @@ def test_hot_flash_restore_pending_is_the_natural_end() -> None:
     by_person, _ = cards(sc.hot_flash("restore_pending", "idle"))
     job = by_person[sc.STEPHEN]
     assert job.complete and job.linger_holds and job.value == {"kind": "text", "text": "Complete"}
-    assert job.headline == "Hot Flash · Your side" and job.relevance == 10 and job.controls == ()
+    assert job.detail == "Your side" and job.relevance == 10 and job.controls == ()
 
 
 @pytest.mark.parametrize("phase", ["idle", "superseded", "unknown"])
@@ -363,15 +404,17 @@ def test_hot_flash_remembers_who_started_it_not_who_the_stale_helper_names_later
 
 
 def test_hot_flash_solo_trip_removes_the_traveller_even_from_their_own_side() -> None:
-    away = ("away", {"mode": "solo_trip", "traveller": "person.stephen_fenton"})
+    away = ("away", {"mode": "solo_trip", "traveler": "stephen", "home_resident": "steph"})
     by_person, _ = cards(sc.hot_flash("holding", "idle", by_left="steph", away=away))
     assert set(by_person) == {sc.STEPHANIE}
-    away = ("away", {"mode": "solo_trip", "traveler": ["Stephanie"]})
+    away = ("away", {"mode": "solo_trip", "traveler": "steph"})
     by_person, _ = cards(sc.hot_flash("holding", "holding", by_left="stephen", by_right="steph", away=away))
     assert set(by_person) == {sc.STEPHEN}
     # Another mode is no trip.
-    home = ("away", {"mode": "home", "traveller": "person.stephen_fenton"})
+    home = ("away", {"mode": "none", "traveler": "stephen"})
     assert set(cards(sc.hot_flash("holding", "idle", away=home))[0]) == {sc.STEPHEN}
+    nobody = ("away", {"mode": "solo_trip", "traveler": "none"})
+    assert set(cards(sc.hot_flash("holding", "idle", by_left="steph", away=nobody))[0]) == {sc.STEPHEN, sc.STEPHANIE}
 
 
 def test_hot_flash_vacation_leaves_only_the_person_who_started_it() -> None:
@@ -424,3 +467,16 @@ def test_parse_time() -> None:
     assert parse_time("2026-10-17 15:00:00") == NOW
     assert parse_time(0) is None and parse_time(True) is None and parse_time("soon") is None and parse_time("") is None
     assert parse_time(None) is None and parse_time(-5) is None
+
+
+def test_a_detail_that_would_run_past_32_characters_drops_the_by_part() -> None:
+    from fenton_push import jobs as jobs_module  # noqa: PLC0415
+
+    memory = Memory()
+    memory.hot_flash_starter["right"] = "stephen"
+    original = dict(entities.REQUESTER_NAMES)
+    entities.REQUESTER_NAMES["stephen"] = "Stephen Alexander Fenton the Third"
+    try:
+        assert jobs_module._detail(sc.STEPHANIE, ["right"], memory) == "Your side"
+    finally:
+        entities.REQUESTER_NAMES.update(original)

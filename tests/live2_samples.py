@@ -74,8 +74,8 @@ def cases() -> dict[str, dict[str, Any]]:
     add("vacuum-paused", first(sc.main_floor("paused"), "job.vacuum.main_floor"), "update")
     add("problem-critical", first(sc.main_floor_issue("navigation.stuck"), "job.vacuum.main_floor"))
     add("problem-warning", first(sc.main_floor_issue("mop.clean_water_empty", vac="paused"), "job.vacuum.main_floor"))
-    add("problem-unknown-error", first(sc.robot_error("Unknown error 12"), "job.vacuum.music_room"))
-    add("problem-unmapped", first(sc.robot_error("Wheel tangled in a cable"), "job.vacuum.music_room"))
+    add("problem-unknown-error", first(sc.robot_issue("vendor.unknown_error_12", "Unknown error 12"), "job.vacuum.music_room"))
+    add("problem-unmapped", first(sc.robot_issue("unmapped.wheel_tangled_in_a_cable", "Wheel tangled in a cable"), "job.vacuum.music_room"))
     add("problem-no-task", first(sc.main_floor_issue("power.low_battery", vac="returning"), "job.vacuum.main_floor"))
     # A problem with a linked Donetick task carries Done last, so three controls.
     engine = Engine()

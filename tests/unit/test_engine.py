@@ -248,14 +248,14 @@ def test_a_fifth_job_waits_for_a_slot_and_starts_when_one_frees() -> None:
 def test_a_critical_problem_bumps_the_least_relevant_job_when_every_slot_is_used() -> None:
     engine = Engine()
     four = five_jobs().with_(input_boolean__washer_started_helper="off")
-    first_problem = four.with_(sensor__valetudo_music_room_error=("Unknown error 12", {}, NOW),
-                               vacuum__valetudo_music_room=("error", {}, NOW))
+    first_problem = four.with_(sensor__music_room_vacuum_status=("error", {"current_issue": sc.issue(
+        "vendor.unknown_error_12", "Unknown error 12")}), vacuum__valetudo_elatedusedram=("error", {}, NOW))
     run(engine, first_problem)
     assert len(engine.cards) == 5, "four jobs and one problem"
     visible_before = {tag for (_, tag) in engine.cards}
     second = first_problem.with_(**{"vacuum__valetudo_exaltedsneakydeer": ("error", {}, NOW),
-                                    "sensor__main_floor_vacuum_status": ("error", {"current_issue": {
-                                        "code": "navigation.stuck", "status": "active", "since": sc.iso(NOW)}})})
+                                    "sensor__main_floor_vacuum_status": ("error", {
+                                        "current_issue": sc.issue("navigation.stuck")})})
     plan = run(engine, second, 30)
     pushed = sc.pushes(plan)
     assert [p.tag for p in pushed] == ["job.vacuum.main_floor"] and pushed[0].alert
@@ -264,8 +264,8 @@ def test_a_critical_problem_bumps_the_least_relevant_job_when_every_slot_is_used
     assert bumped.tag == "job.dishwasher", "the one with the least relevance (the latest finish)"
     assert len(engine.cards) == 5
     # The bumped job is not lost: it starts again when a slot frees.
-    freed = second.with_(sensor__valetudo_music_room_error=("No error", {}, NOW + 40),
-                         vacuum__valetudo_music_room=("docked", {}, NOW + 40))
+    freed = second.with_(sensor__music_room_vacuum_status=("clear", {"current_issue": sc.CLEAR}),
+                         vacuum__valetudo_elatedusedram=("docked", {}, NOW + 40))
     assert bumped.tag in tags(run(engine, freed, 90))
 
 
@@ -318,9 +318,9 @@ def test_cards_per_person_differ_in_content() -> None:
     engine = Engine()
     snapshot = sc.hot_flash("holding", "idle", by_left="steph")
     plan = run(engine, snapshot, regs=[sc.PHONE, sc.STEPH_PHONE])
-    lines = {p.webhook_id: p.content["headline"] for p in sc.pushes(plan)}
-    assert lines == {"hook-stephen-iphone": "Hot Flash · Your side · by Steph",
-                     "hook-steph-iphone": "Hot Flash · Stephen's side"}
+    lines = {p.webhook_id: p.content["detail"] for p in sc.pushes(plan)}
+    assert lines == {"hook-stephen-iphone": "Your side · by Steph", "hook-steph-iphone": "Stephen's side"}
+    assert all("headline" not in p.content for p in sc.pushes(plan))
 
 
 def test_a_registration_with_no_person_gets_only_the_household_jobs() -> None:

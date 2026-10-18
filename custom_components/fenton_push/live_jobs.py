@@ -74,8 +74,8 @@ def watched_entities() -> tuple[set[str], tuple[str, ...]]:
         ids.update(v for k, v in fan_entities(room).items() if k != "command")
     prefixes = []
     for robot in ROBOTS.values():
-        ids.update(e for e in (robot.vacuum, robot.status_flag, robot.error_sensor, robot.mode_select,
-                               robot.fallback_helper, robot.error_message_helper) if e)
+        ids.update((robot.vacuum, robot.status_flag, robot.status_sensor, robot.segment_sensor, robot.error_sensor,
+                    robot.mode_select, robot.fallback_helper, robot.error_message_helper))
         if robot.coordinator:
             ids.update(coordinator_entities(robot).values())
             prefixes.append(f"sensor.{robot.coordinator}_")
@@ -474,15 +474,13 @@ class LiveJobs:
             return
         mine = [r.webhook_id for r in self.registrations() if r.user_id == user_id
                 and (r.webhook_id, tag) in self.engine.cards]
-        if (named := event.data.get("webhook_id")) is not None:
-            mine = [wh for wh in mine if wh == named]
-        elif len(mine) > 1:
+        if len(mine) > 1:
             # The event does not say which device. Core drops the token of the device that reported the dismissal.
             await asyncio.sleep(self.dismiss_delay)
             gone = [wh for wh in mine if recovery.has_token(self.hass, wh, tag) is False]
             mine = gone or mine
         now = self.now()
-        if any(self.engine.dismiss(wh, tag, now) for wh in mine):
+        if any([self.engine.dismiss(wh, tag, now) for wh in mine]):
             self._publish()
 
     # -- fenton_push.problem -----------------------------------------------------------------------------------------

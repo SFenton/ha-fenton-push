@@ -107,6 +107,8 @@ def render(job: JobState, notice: str | None = None) -> dict[str, Any]:
     content: dict[str, Any] = {"v": 2, "phase": job.phase}
     if job.headline:
         content["headline"] = job.headline
+    if job.detail:
+        content["detail"] = job.detail
     content["value"] = dict(job.value)
     if job.progress is not None:
         content["progress"] = round(job.progress, 3)
@@ -299,11 +301,10 @@ class Engine:
     def _problem_card(self, record: ProblemRecord, base: JobState | None, states: States, now: float,
                       tz: tzinfo | None, donetick_user: int | None = None) -> JobState:
         robot = ROBOTS.get(record.job_id)
-        coordinator = bool(robot and robot.coordinator
-                           and states.is_on(coordinator_entities(robot)["auto_cleaning"]))
+        session = bool(robot and robot.coordinator and states.is_on(coordinator_entities(robot)["auto_cleaning"]))
         info: ProblemInfo = build_problem(
             record.code, record.raw, room=record.room, since=record.since or record.created, tz=tz,
-            make_button=lambda button: ctl.problem_button(button, robot, coordinator),
+            make_button=lambda button: ctl.problem_button(button, robot, session),
             task_id=record.task_id, make_done=lambda task_id: ctl.done(task_id, donetick_user),
             title=record.title, message=record.message)
         style = style_for(record.job_id)
@@ -313,7 +314,7 @@ class Engine:
             return JobState(job_id=record.job_id, title=style.title, kind="problem", symbol=style.symbol,
                             tint=style.tint, phase="problem", value=value, controls=info.controls, url=style.url,
                             relevance=score, problem=info)
-        return base.with_(phase="problem", value=value, headline=None, progress=None, controls=info.controls,
+        return base.with_(phase="problem", value=value, headline=None, detail=None, progress=None, controls=info.controls,
                           relevance=score, problem=info, complete=False, complete_on_drop=False, linger_holds=False,
                           open_ended=True)
 

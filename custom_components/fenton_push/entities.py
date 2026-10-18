@@ -120,8 +120,8 @@ DISHWASHER = {
     "remote": "binary_sensor.dishwasher_remote_control",
     "stop": "button.dishwasher_stop_program",
     "resume": "button.dishwasher_resume_program",
-    # VERIFY: only used for the "Starts h:mm" text of a delayed start; without it the card says "Delayed start".
-    "start_time": "sensor.dishwasher_program_start_time",
+    #: Seconds until a delayed start, counted from when the state changed to ``delayedstart``.
+    "start_in": "number.dishwasher_start_in_relative",
 }
 DISHWASHER_END_TOLERANCE = 60
 #: Progress moves this many points, at most this often, before a progress-only card is updated.
@@ -146,14 +146,17 @@ class Robot:
     job: str
     floor: str  # "Main Floor": used in "Cleaning Main Floor"
     vacuum: str  # the vacuum entity
-    robot_id: str  # the Valetudo id in sensor.valetudo_<id>_status_flag and _error
-    #: The coordinator's object id (``main_floor_vacuum_coordinator``), or None for a robot with no coordinator.
+    robot_id: str  # the Valetudo id in sensor.valetudo_<id>_status_flag and select.valetudo_<id>_mode
+    #: ``sensor.<floor>_vacuum_status``: every robot's problem sensor, with the coordinator's ``current_issue`` contract.
+    status_sensor: str
+    #: ``sensor.*estimated_segment``: its state is the name of the room a manual segment run is in.
+    segment_sensor: str
+    #: The coordinator's object id (``main_floor_vacuum_coordinator``); only the Main Floor robot has one.
     coordinator: str | None = None
-    #: The ``<floor>`` of ``sensor.<floor>_vacuum_status`` (the coordinator's problem sensor).
-    status_floor: str | None = None
-    mode_select: str | None = None
-    fallback_helper: str | None = None
-    error_message_helper: str | None = None
+
+    @property
+    def slug(self) -> str:
+        return self.job.split(".", 1)[1]
 
     @property
     def status_flag(self) -> str:
@@ -161,22 +164,38 @@ class Robot:
 
     @property
     def error_sensor(self) -> str:
+        """The robot's own error text: a last resort when ``status_sensor`` is missing."""
         return f"sensor.valetudo_{self.robot_id}_error"
 
+    @property
+    def mode_select(self) -> str:
+        return f"select.valetudo_{self.robot_id}_mode"
 
-# VERIFY: every vacuum entity id and the music and theater robot ids (the spec only gives the Main Floor robot id,
-# ``exaltedsneakydeer``, through ``select.valetudo_exaltedsneakydeer_mode``).
+    @property
+    def fallback_helper(self) -> str:
+        """Only the music room has one today; the others never exist, which reads as off."""
+        return f"input_boolean.{self.slug}_vacuum_fallback_active"
+
+    @property
+    def error_message_helper(self) -> str:
+        return f"input_text.{self.slug}_vacuum_error_message"
+
+
+# Verified against the owner's Home Assistant on 2026-10-17 (planner review).
 ROBOTS: dict[str, Robot] = {
     JOB_VAC_MAIN: Robot(
-        job=JOB_VAC_MAIN, floor="Main Floor", vacuum="vacuum.valetudo_exaltedsneakydeer",
-        robot_id="exaltedsneakydeer", coordinator="main_floor_vacuum_coordinator", status_floor="main_floor",
-        mode_select="select.valetudo_exaltedsneakydeer_mode",
-        fallback_helper="input_boolean.main_floor_vacuum_fallback",
-        error_message_helper="input_text.main_floor_vacuum_error_message"),
-    JOB_VAC_MUSIC: Robot(job=JOB_VAC_MUSIC, floor="Music Room", vacuum="vacuum.valetudo_music_room",
-                         robot_id="music_room"),
-    JOB_VAC_THEATER: Robot(job=JOB_VAC_THEATER, floor="Theater Room", vacuum="vacuum.valetudo_theater_room",
-                           robot_id="theater_room"),
+        job=JOB_VAC_MAIN, floor="Main Floor", vacuum="vacuum.valetudo_exaltedsneakydeer", robot_id="exaltedsneakydeer",
+        status_sensor="sensor.main_floor_vacuum_status",
+        segment_sensor="sensor.main_floor_robot_vacuum_estimated_segment",
+        coordinator="main_floor_vacuum_coordinator"),
+    JOB_VAC_MUSIC: Robot(
+        job=JOB_VAC_MUSIC, floor="Music Room", vacuum="vacuum.valetudo_elatedusedram", robot_id="elatedusedram",
+        status_sensor="sensor.music_room_vacuum_status",
+        segment_sensor="sensor.music_room_music_room_robot_vacuum_estimated_segment"),
+    JOB_VAC_THEATER: Robot(
+        job=JOB_VAC_THEATER, floor="Theater Room", vacuum="vacuum.valetudo_politefatherlykingfisher",
+        robot_id="politefatherlykingfisher", status_sensor="sensor.theater_room_vacuum_status",
+        segment_sensor="sensor.theater_room_vacuum_estimated_segment_2"),
 }
 
 #: Coordinator room phases that mean a room is being cleaned right now.
@@ -184,7 +203,7 @@ COORDINATOR_ACTIVE_PHASES = frozenset({"cleaning", "resumed_cleaning"})
 #: ``mode`` select option to the verb on the card.
 MODE_VERBS = {"vacuum": "Vacuuming", "mop": "Mopping", "vacuum_and_mop": "Cleaning"}
 #: ``current_issue.status`` values that mean the issue is over.
-ISSUE_CLEARED = frozenset({"", "none", "cleared", "resolved", "ok", "closed"})
+ISSUE_CLEARED = frozenset({"", "none", "clear", "cleared", "resolved", "ok", "closed"})
 #: Vacuum states that end a manual run at once.
 VACUUM_ENDED_STATES = frozenset({"returning", "docked", "idle", "error", "unavailable", "unknown"})
 
@@ -194,7 +213,6 @@ def coordinator_entities(robot: Robot) -> dict[str, str]:
     return {
         "current_room": f"sensor.{robot.coordinator}_current_room",
         "auto_cleaning": f"binary_sensor.{robot.coordinator}_auto_cleaning",
-        "status": f"sensor.{robot.status_floor}_vacuum_status",
     }
 
 
@@ -202,11 +220,12 @@ def last_cleaned_entity(robot: Robot, room_id: str) -> str:
     return f"sensor.{robot.coordinator}_{room_id}_last_cleaned"
 
 
-#: Service calls for the vacuum controls. ``{entity_id}`` and friends are filled per robot by ``jobs``.
-#: VERIFY: the coordinator integration's service names and field names (spec section 4 names the services only).
+#: Pause and Resume are plain ``vacuum.pause`` and ``vacuum.start`` (the coordinator watches the robot). ``set_paused``
+#: pauses the automatic cleaning scheduler, not the robot, so it is not used. Dock while the coordinator runs a session
+#: cancels it (the coordinator then sends the robot home).
 COORDINATOR_DOMAIN = "valetudo_vacuum_coordinator"
-COORDINATOR_PAUSE_SERVICE = "set_paused"
 COORDINATOR_CANCEL_SERVICE = "cancel_session"
+COORDINATOR_CANCEL_REASON = "live_activity"
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Hot flash (spec section 4a)
@@ -232,16 +251,15 @@ class Side:
     climate: str
 
 
-# VERIFY: the two ``climate`` entity ids (the spec says "the climate's current_temperature" without naming it).
 SIDES: dict[str, Side] = {
     "left": Side("left", "person.stephen_fenton", "stephen", "input_select.sleepypod_hot_flash_left_phase",
                  "timer.sleepypod_hot_flash_left", "input_datetime.sleepypod_hot_flash_left_restore_at",
                  "input_text.eight_sleep_stephen_hot_flash_requested_by",
-                 "input_button.eight_sleep_stephen_cancel_hot_flash", "climate.sleepypod_left"),
+                 "input_button.eight_sleep_stephen_cancel_hot_flash", "climate.sleepypod_eight_pod_left_side"),
     "right": Side("right", "person.stephanie_hobart", "steph", "input_select.sleepypod_hot_flash_right_phase",
                   "timer.sleepypod_hot_flash_right", "input_datetime.sleepypod_hot_flash_right_restore_at",
                   "input_text.eight_sleep_steph_hot_flash_requested_by",
-                  "input_button.eight_sleep_steph_cancel_hot_flash", "climate.sleepypod_right"),
+                  "input_button.eight_sleep_steph_cancel_hot_flash", "climate.sleepypod_eight_pod_right_side"),
 }
 #: ``requested_by`` value to the person it names, and the name shown on the card.
 REQUESTERS = {"stephen": "person.stephen_fenton", "steph": "person.stephanie_hobart"}
@@ -249,16 +267,19 @@ REQUESTER_NAMES = {"stephen": "Stephen", "steph": "Steph"}
 UNATTRIBUTED = "unattributed"
 AWAY_STATUS = "sensor.household_away_status"
 VACATION_MODE = "binary_sensor.effective_vacation_mode"
-#: VERIFY: which attribute of ``sensor.household_away_status`` names the traveller during a Solo Trip. Each is tried
-#: in turn; a value may be a person entity id, a first name or a list of either.
-AWAY_TRAVELLER_ATTRIBUTES = ("traveller", "traveler", "traveling", "travelling", "away_person", "person", "persons")
+#: ``sensor.household_away_status``: ``mode`` is ``solo_trip`` while a trip is on, and ``traveler`` is ``stephen``,
+#: ``steph`` or ``none``.
+AWAY_TRAVELLER_ATTRIBUTES = ("traveler",)
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Donetick (spec section 5)
 
 TODO_ENTITY = "todo.all_tasks_internal"
-#: HA user id to Donetick user id, for ``donetick.complete_task``'s ``completed_by``. Empty: not passed.
-DONETICK_USERS: dict[str, int] = {}
+#: HA user id to Donetick user id, for ``donetick.complete_task``'s ``completed_by``: Stephen is 1, Steph is 2.
+DONETICK_USERS: dict[str, int] = {
+    "64089b5683944c39b4f944c8f76830b0": 1,
+    "43cb71bbd1cb4860b2a7de4c829020f0": 2,
+}
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Household notification fallback (spec section 5)

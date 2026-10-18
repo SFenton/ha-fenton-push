@@ -235,6 +235,7 @@ A `data.fenton_activity` block with `"v": 2` becomes the `content-state` after v
 | `v` | `2` |
 | `phase` | `running`, `paused`, `waiting`, `problem` or `done` (anything else is refused) |
 | `headline` | optional, 32 characters |
+| `detail` | optional, 32 characters: a short line under the title (hot flash: "Your side", "Stephen's side", "Whole bed", plus " · by Steph" or " · by Home" when it fits) |
 | `value` | `{kind: countdown, end_ts, start_ts?}`, `{kind: countup, start_ts, paused_elapsed_s?}`, `{kind: percent}` (needs `progress`) or `{kind: text, text}` (16 characters); `estimated: true` optional |
 | `progress` | optional, 0 to 1 |
 | `controls` | at most 2 `{id, title, role?}`; at most 3 when `phase` is `problem`. Titles 20 characters. The first control is primary; `role: "secondary"` is kept on the others |
@@ -287,5 +288,5 @@ push the relay:
 | Name | Direction | Data |
 |---|---|---|
 | `fenton_live_activity_action` | phone to engine (registration webhook `fire_event`) | `{tag, job, control}`; the event's user comes from the registration |
-| `fenton_live_activity_dismissed` | phone to engine | `{tag, webhook_id?}`; without `webhook_id` the engine narrows to the device whose token core dropped |
+| `fenton_live_activity_dismissed` | phone to engine | `{tag}`; a webhook id is a credential and events are recorded, so none is sent. With several devices showing the tag the engine narrows to the one whose token core just dropped |
 | `fenton_push.problem` | automation to engine | `{device, code?, raw?, title?, message?, task_title?, url?, tag?, data?}` |

@@ -58,7 +58,6 @@ from .problems import code_for_raw
 from .snapshot import States, parse_time
 
 COMPLETE = "Complete"
-MAX_HEADLINE = 32
 
 
 @dataclass
@@ -110,15 +109,16 @@ def _card(job_id: str, phase: str, value: dict, **fields) -> JobState:
 
 
 def complete_card(job_id: str, *, audience: frozenset[str] | None = None, headline: str | None = None,
-                  linger_holds: bool = False) -> JobState:
+                  detail: str | None = None, linger_holds: bool = False) -> JobState:
     """The card of a job that finished on its own: a filled ring and "Complete" (relevance 10)."""
-    return _card(job_id, "done", text(COMPLETE), headline=headline, progress=1.0, complete=True, relevance=10.0,
+    return _card(job_id, "done", text(COMPLETE), headline=headline, detail=detail, progress=1.0, complete=True, relevance=10.0,
                  linger_holds=linger_holds, audience=audience, open_ended=False)
 
 
 def as_complete(job: JobState) -> JobState:
     """The Complete card for a running laundry job that has just finished (it keeps its audience and headline)."""
-    return complete_card(job.job_id, audience=job.audience, headline=job.headline, linger_holds=True)
+    return complete_card(job.job_id, audience=job.audience, headline=job.headline, detail=job.detail,
+                         linger_holds=True)
 
 
 # -- Fans -------------------------------------------------------------------------------------------------------------
@@ -148,6 +148,12 @@ def _clock(moment: float, tz: tzinfo | None) -> str:
     return f"{local.hour % 12 or 12}:{local.minute:02d} {'AM' if local.hour < 12 else 'PM'}"
 
 
+def _delayed_start(states: States) -> float | None:
+    """When a delayed start begins: the moment the state changed plus ``start_in_relative`` seconds (when above zero)."""
+    changed, relative = states.changed(DISHWASHER["state"]), states.number(DISHWASHER["start_in"])
+    return changed + relative if changed and relative and relative > 0 else None
+
+
 def dishwasher(states: States, now: float, ctx: Ctx) -> JobState | None:
     op = (states.known(DISHWASHER["state"]) or "").lower()
     remote = states.is_on(DISHWASHER["remote"])
@@ -157,7 +163,7 @@ def dishwasher(states: States, now: float, ctx: Ctx) -> JobState | None:
         return None
     tolerance = Tolerance(end_seconds=DISHWASHER_END_TOLERANCE)
     if op == "delayedstart":
-        start = states.timestamp(DISHWASHER["start_time"], ctx.tz)
+        start = _delayed_start(states)
         label = f"Starts {_clock(start, ctx.tz)}" if start and start > now else "Delayed start"
         return _card(JOB_DISHWASHER, "waiting", text(label), relevance=55.0, tolerance=tolerance,
                      controls=(ctl.dishwasher_stop(),) if remote else ())
@@ -221,6 +227,11 @@ def _verb(robot: Robot, states: States) -> str:
     return MODE_VERBS.get(mode.lower(), "Cleaning")
 
 
+def _session(robot: Robot, states: States) -> bool:
+    """Whether the coordinator is running an automatic cleaning session on this robot."""
+    return bool(robot.coordinator) and states.is_on(coordinator_entities(robot)["auto_cleaning"])
+
+
 def vacuum(robot: Robot, states: States, now: float, ctx: Ctx) -> JobState | None:
     vac = states.state(robot.vacuum).lower()
     if vac in VACUUM_ENDED_STATES:
@@ -229,7 +240,7 @@ def vacuum(robot: Robot, states: States, now: float, ctx: Ctx) -> JobState | Non
         room_id, phase = _current_room(robot, states)
         if room_id and (phase in COORDINATOR_ACTIVE_PHASES or vac == "paused"):
             return _coordinator_room(robot, room_id, vac, states, now)
-        if states.is_on(coordinator_entities(robot)["auto_cleaning"]):
+        if _session(robot, states):
             return None  # between rooms of a session
     if vac in ("cleaning", "paused"):
         return _manual_run(robot, vac, states, now, ctx)
@@ -237,14 +248,14 @@ def vacuum(robot: Robot, states: States, now: float, ctx: Ctx) -> JobState | Non
 
 
 def _running_card(robot: Robot, headline: str, session_key: str, start: float, vac: str, states: States, *,
-                  coordinator: bool) -> JobState:
+                  session: bool) -> JobState:
     if vac == "paused":
         paused_for = (states.changed(robot.vacuum) or start) - start
         return _card(robot.job, "paused", countup(start, paused_for), headline=headline, progress=1.0,
-                     controls=(ctl.vacuum_resume(robot, coordinator), ctl.vacuum_dock(robot, coordinator)),
+                     controls=(ctl.vacuum_resume(robot, session), ctl.vacuum_dock(robot, session)),
                      relevance=55.0, session_key=session_key)
     return _card(robot.job, "running", countup(start), headline=headline, progress=1.0,
-                 controls=(ctl.vacuum_pause(robot, coordinator), ctl.vacuum_dock(robot, coordinator)),
+                 controls=(ctl.vacuum_pause(robot, session), ctl.vacuum_dock(robot, session)),
                  relevance=55.0, session_key=session_key)
 
 
@@ -253,15 +264,13 @@ def _coordinator_room(robot: Robot, room_id: str, vac: str, states: States, now:
     start = parse_time(states.attr(entities["current_room"], "start_confirmed_at"))
     start = start or states.changed(robot.vacuum) or now
     headline = f"{_verb(robot, states)} {room_label(robot, room_id, states)}"
-    return _running_card(robot, headline, f"room:{room_id}", start, vac, states, coordinator=True)
+    return _running_card(robot, headline, f"room:{room_id}", start, vac, states, session=_session(robot, states))
 
 
 def _manual_run(robot: Robot, vac: str, states: States, now: float, ctx: Ctx) -> JobState:
+    """A run nobody scheduled: the status flag (state only) says what kind, the segment sensor which room."""
     flag = (states.known(robot.status_flag) or "none").lower()
-    segment = ""
-    for key in ("segment_name", "segment", "estimated_segment"):
-        if segment := clean(states.attr(robot.status_flag, key)):
-            break
+    segment = clean(states.known(robot.segment_sensor)) if flag == "segment" else ""
     if flag == "segment":
         headline = f"Vacuuming {segment}".strip()
     elif flag == "zone":
@@ -273,27 +282,43 @@ def _manual_run(robot: Robot, vac: str, states: States, now: float, ctx: Ctx) ->
     session_key = f"{flag}:{segment}"
     remembered = ctx.memory.session_start.get(robot.job)
     start = remembered[1] if remembered and remembered[0] == session_key else (states.changed(robot.vacuum) or now)
-    return _running_card(robot, headline, session_key, start, vac, states, coordinator=False)
+    return _running_card(robot, headline, session_key, start, vac, states, session=False)
+
+
+def _issue(robot: Robot, states: States) -> tuple[str, str | None, float | None] | None:
+    """(code, raw, when) of the status sensor's active ``current_issue``; None when it is clear.
+
+    The sensor's contract: ``{status: "clear"}`` when nothing is wrong, else ``{code, raw, reported_at, ...}``.
+    """
+    issue = states.attr(robot.status_sensor, "current_issue")
+    if not isinstance(issue, dict) or clean(issue.get("status")).lower() in ISSUE_CLEARED - {""}:
+        return None
+    code, raw = clean(issue.get("code")), clean(issue.get("raw")) or None
+    if not code:
+        code = code_for_raw(raw) or ""
+    if not code:
+        return None
+    return code, raw, parse_time(issue.get("reported_at") or issue.get("since"))
 
 
 def vacuum_signals(robot: Robot, states: States, now: float) -> ProblemSignal | None:
-    """The problem a robot reports: the coordinator's ``current_issue``, else the robot's own error text."""
+    """The problem a robot reports: its status sensor's ``current_issue``; the robot's own error text only when the
+    status sensor is missing; then the vacuum-only fallback helper."""
     room = None
     if robot.coordinator:
-        entities = coordinator_entities(robot)
         room_id, _ = _current_room(robot, states)
         room = room_label(robot, room_id, states) if room_id else None
-        issue = states.attr(entities["status"], "current_issue")
-        if isinstance(issue, dict) and clean(issue.get("code")) and \
-                clean(issue.get("status")).lower() not in ISSUE_CLEARED:
-            return ProblemSignal(robot.job, clean(issue["code"]), None, room, parse_time(issue.get("since")))
+    if states.known(robot.status_sensor) is not None:
+        if issue := _issue(robot, states):
+            code, raw, when = issue
+            return ProblemSignal(robot.job, code, raw, room, when)
     else:
         raw = states.known(robot.error_sensor)
         if code := code_for_raw(raw):
             return ProblemSignal(robot.job, code, raw, room, states.changed(robot.error_sensor))
-    if robot.fallback_helper and states.is_on(robot.fallback_helper):
+    if states.is_on(robot.fallback_helper):
         return ProblemSignal(robot.job, "mop.vacuum_only_fallback",
-                             clean(states.state(robot.error_message_helper or "", "")) or None, room,
+                             clean(states.state(robot.error_message_helper, "")) or None, room,
                              states.changed(robot.fallback_helper))
     return None
 
@@ -340,7 +365,7 @@ def travellers(states: States, ctx: Ctx) -> set[str]:
             values.extend(value)
         elif value is not None:
             values.append(value)
-    return _resolve_people(values, ctx.people)
+    return _resolve_people([v for v in values if clean(v).lower() != "none"], ctx.people)
 
 
 def hot_flash_audience(side: Side, starter: str, away: set[str], vacation: bool) -> frozenset[str]:
@@ -407,8 +432,12 @@ def _hold_end(states: States, side: Side, ctx: Ctx) -> float | None:
     return end
 
 
-def _line(person: str, keys: list[str], memory: Memory) -> str:
-    """"Your side", "Stephen's side", "Whole bed", plus " · by Steph" when someone else started it."""
+MAX_DETAIL = 32
+
+
+def _detail(person: str, keys: list[str], memory: Memory) -> str:
+    """"Your side", "Stephen's side" or "Whole bed", plus " · by Steph" (or " · by Home") when someone else started it
+    and it fits in 32 characters."""
     if len(keys) == 2:
         label = "Whole bed"
     else:
@@ -418,13 +447,10 @@ def _line(person: str, keys: list[str], memory: Memory) -> str:
     others = [s for s in (memory.hot_flash_starter.get(k, UNATTRIBUTED) for k in keys) if s != viewer]
     if others:
         by = others[0]
-        label += f" · by {'Home' if by == UNATTRIBUTED else REQUESTER_NAMES.get(by, by.title())}"
-    return label
-
-
-def _headline(line: str) -> str:
-    full = f"{style_for(JOB_HOT_FLASH).title} · {line}"
-    return full if len(full) <= MAX_HEADLINE else line[:MAX_HEADLINE]
+        suffix = f" · by {'Home' if by == UNATTRIBUTED else REQUESTER_NAMES.get(by, by.title())}"
+        if len(label + suffix) <= MAX_DETAIL:
+            label += suffix
+    return label[:MAX_DETAIL]
 
 
 def hot_flash(states: States, now: float, ctx: Ctx) -> list[JobState]:
@@ -442,10 +468,10 @@ def hot_flash(states: States, now: float, ctx: Ctx) -> list[JobState]:
         view = [key for key in live if person in members[key]]
         active = [key for key in view if live[key] in HOT_FLASH_ACTIVE]
         shown = active or view
-        line = _line(person, shown, memory)
+        detail = _detail(person, shown, memory)
         audience = frozenset({person})
         if not active:
-            cards.append(complete_card(JOB_HOT_FLASH, audience=audience, headline=_headline(line), linger_holds=True))
+            cards.append(complete_card(JOB_HOT_FLASH, audience=audience, detail=detail, linger_holds=True))
             continue
         if any(live[key] == "cooling" for key in active):
             value, progress = text("Cooling"), _cooling_progress([k for k in active if live[k] == "cooling"], states, memory)
@@ -454,7 +480,7 @@ def hot_flash(states: States, now: float, ctx: Ctx) -> list[JobState]:
             end = max(ends) if ends else None
             value = countdown(end, end - HOT_FLASH_HOLD_SECONDS) if end else text("Holding")
             progress = None
-        cards.append(_card(JOB_HOT_FLASH, "running", value, headline=_headline(line), progress=progress,
+        cards.append(_card(JOB_HOT_FLASH, "running", value, detail=detail, progress=progress,
                            controls=(ctl.hot_flash_stop(tuple(active)),), relevance=70.0, audience=audience,
                            open_ended=False if value["kind"] == "countdown" else True))
     return cards

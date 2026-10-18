@@ -6,7 +6,7 @@
     "content-state": {
       "v": 2,
       "phase": "running",
-      "headline": "Hot Flash · Whole bed",
+      "detail": "Whole bed",
       "value": {
         "kind": "countdown",
         "end_ts": 1792250060,
@@ -30,7 +30,7 @@
     },
     "alert": {
       "title": "Hot Flash",
-      "body": "Hot Flash · Whole bed"
+      "body": "Hot Flash"
     },
     "input-push-token": 1,
     "stale-date": 1792250660,

@@ -22,9 +22,7 @@
         "icon": "water",
         "problem": "Clean water tank empty",
         "message": "Refill the clean water tank on the dock, then tap Resume.",
-        "chips": [
-          "Since 2:58 PM"
-        ]
+        "chips": []
       },
       "url": "/sfenton-react-dash/home?path=vacuums"
     },

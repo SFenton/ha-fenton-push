@@ -17,9 +17,7 @@
         "icon": "battery",
         "problem": "Battery low",
         "message": "Heading to the dock. It finishes Kitchen after charging.",
-        "chips": [
-          "Since 2:58 PM"
-        ]
+        "chips": []
       },
       "url": "/sfenton-react-dash/home?path=vacuums"
     },

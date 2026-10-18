@@ -149,6 +149,13 @@ def test_unknown_keys_pending_and_icons_are_cleaned_with_notes() -> None:
     assert any("icon" in n for n in request.notes)
 
 
+def test_detail_is_a_content_state_key() -> None:
+    state, _ = state_v2({**BLOCK, "headline": None, "detail": "Stephen's side · by Home"}, [])
+    assert state["detail"] == "Stephen's side · by Home" and "headline" not in state
+    assert "detail" not in state_v2({**BLOCK, "detail": "  "}, [])[0]
+    assert len(state_v2({**BLOCK, "detail": "d" * 50}, [])[0]["detail"]) == 32
+
+
 def test_strings_are_capped() -> None:
     state, _ = state_v2({**BLOCK, "headline": "h" * 50, "notice": "n" * 90,
                          "controls": [{"id": "i" * 60, "title": "t" * 60}]}, [])

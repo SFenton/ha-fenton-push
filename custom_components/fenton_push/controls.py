@@ -9,9 +9,9 @@ press did not work.
 from __future__ import annotations
 
 from .entities import (
+    COORDINATOR_CANCEL_REASON,
     COORDINATOR_CANCEL_SERVICE,
     COORDINATOR_DOMAIN,
-    COORDINATOR_PAUSE_SERVICE,
     DISHWASHER,
     FAN_STOP_CANCELS_TIMER_FIRST,
     SIDES,
@@ -51,55 +51,44 @@ def dishwasher_resume() -> Control:
 
 
 # -- Vacuums ----------------------------------------------------------------------------------------------------------
+#
+# ``session`` is whether the coordinator is running an automatic cleaning session (its ``auto_cleaning`` flag is on).
 
 
-def _vacuum_call(robot: Robot, action: str, coordinator: bool) -> ServiceCall:
-    """One of ``pause``, ``resume`` or ``dock`` as a service call.
-
-    While the coordinator runs a session, it owns the robot: pausing, resuming or cancelling goes through its
-    services so the session stays in step. Otherwise the plain ``vacuum`` services.
-    """
-    if coordinator and robot.coordinator:
-        if action == "dock":
-            return ServiceCall(COORDINATOR_DOMAIN, COORDINATOR_CANCEL_SERVICE, {"entity_id": robot.vacuum})
-        return ServiceCall(COORDINATOR_DOMAIN, COORDINATOR_PAUSE_SERVICE,
-                           {"entity_id": robot.vacuum, "paused": action == "pause"})
-    service = {"pause": "pause", "resume": "start", "dock": "return_to_base"}[action]
-    return ServiceCall("vacuum", service, {"entity_id": robot.vacuum})
-
-
-def vacuum_pause(robot: Robot, coordinator: bool) -> Control:
+def vacuum_pause(robot: Robot, session: bool = False) -> Control:
     return Control(id="pause", title="Pause", verb="pause", outcome="update",
-                   calls=(_vacuum_call(robot, "pause", coordinator),),
+                   calls=(ServiceCall("vacuum", "pause", {"entity_id": robot.vacuum}),),
                    expect=(Expect(robot.vacuum, frozenset({"paused"})),))
 
 
-def vacuum_resume(robot: Robot, coordinator: bool) -> Control:
+def vacuum_resume(robot: Robot, session: bool = False) -> Control:
     return Control(id="resume", title="Resume", verb="resume", outcome="update",
-                   calls=(_vacuum_call(robot, "resume", coordinator),),
+                   calls=(ServiceCall("vacuum", "start", {"entity_id": robot.vacuum}),),
                    expect=(Expect(robot.vacuum, frozenset({"cleaning"})),))
 
 
-def vacuum_dock(robot: Robot, coordinator: bool) -> Control:
-    return Control(id="dock", title="Dock", verb="dock",
-                   calls=(_vacuum_call(robot, "dock", coordinator),),
+def vacuum_dock(robot: Robot, session: bool = False) -> Control:
+    """Dock: cancel the coordinator's session when it runs one (it sends the robot home), else go to the dock."""
+    if session and robot.coordinator:
+        call = ServiceCall(COORDINATOR_DOMAIN, COORDINATOR_CANCEL_SERVICE, {"reason": COORDINATOR_CANCEL_REASON})
+    else:
+        call = ServiceCall("vacuum", "return_to_base", {"entity_id": robot.vacuum})
+    return Control(id="dock", title="Dock", verb="dock", calls=(call,),
                    expect=(Expect(robot.vacuum, frozenset({"returning", "docked"})),))
 
 
-def vacuum_try_again(robot: Robot, coordinator: bool) -> Control:
+def vacuum_try_again(robot: Robot, session: bool = False) -> Control:
     """Can't-get-back-to-the-dock: try the return again."""
     return Control(id="try_again", title="Try Again", verb="try again",
                    calls=(ServiceCall("vacuum", "return_to_base", {"entity_id": robot.vacuum}),),
                    expect=(Expect(robot.vacuum, frozenset({"returning", "docked"})),))
 
 
-def vacuum_only(robot: Robot, coordinator: bool) -> Control | None:
+def vacuum_only(robot: Robot, session: bool = False) -> Control:
     """Mop pads missing: switch the mode to vacuum, then resume."""
-    if not robot.mode_select:
-        return None
     return Control(id="vacuum_only", title="Vacuum Only", verb="resume", outcome="update",
                    calls=(ServiceCall("select", "select_option", {"entity_id": robot.mode_select, "option": "vacuum"}),
-                          _vacuum_call(robot, "resume", coordinator)),
+                          ServiceCall("vacuum", "start", {"entity_id": robot.vacuum})),
                    expect=(Expect(robot.vacuum, frozenset({"cleaning"})),))
 
 
@@ -111,12 +100,12 @@ _PROBLEM_BUILDERS = {
 }
 
 
-def problem_button(button: str, robot: Robot | None, coordinator: bool) -> Control | None:
+def problem_button(button: str, robot: Robot | None, session: bool) -> Control | None:
     """A problem row's button (``resume``, ``dock``…) for a robot; None for a device that has no such control."""
     builder = _PROBLEM_BUILDERS.get(button)
     if builder is None or robot is None:
         return None
-    return builder(robot, coordinator)
+    return builder(robot, session)
 
 
 def done(task_id: int, completed_by: int | None = None) -> Control:

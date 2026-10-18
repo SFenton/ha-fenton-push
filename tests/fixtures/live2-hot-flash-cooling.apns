@@ -6,7 +6,7 @@
     "content-state": {
       "v": 2,
       "phase": "running",
-      "headline": "Hot Flash · Your side",
+      "detail": "Your side",
       "value": {
         "kind": "text",
         "text": "Cooling"
@@ -30,7 +30,7 @@
     },
     "alert": {
       "title": "Hot Flash",
-      "body": "Hot Flash · Your side"
+      "body": "Hot Flash"
     },
     "input-push-token": 1,
     "stale-date": 1792251000,

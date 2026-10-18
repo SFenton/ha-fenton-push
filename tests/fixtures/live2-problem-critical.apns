@@ -27,9 +27,7 @@
         "icon": "alert",
         "problem": "Stuck in Kitchen",
         "message": "Move it somewhere flat, then tap Resume.",
-        "chips": [
-          "Since 2:58 PM"
-        ]
+        "chips": []
       },
       "url": "/sfenton-react-dash/home?path=vacuums"
     },

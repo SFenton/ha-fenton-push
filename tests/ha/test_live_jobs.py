@@ -17,7 +17,7 @@ from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
 
-from custom_components.fenton_push import recovery
+from custom_components.fenton_push import entities, recovery
 from custom_components.fenton_push.const import (
     CONF_LIVE_DEVICES,
     CONF_LIVE_JOBS,
@@ -311,14 +311,14 @@ async def test_pause_and_resume_update_the_card(hass: HomeAssistant, world) -> N
     assert sent(world, "hook-stephen-iphone")[-1]["data"]["fenton_activity"]["headline"] == "Cleaning Kitchen"
     paused: list[dict] = []
 
-    async def set_paused(call: ServiceCall) -> None:
+    async def pause(call: ServiceCall) -> None:
         paused.append(dict(call.data))
-        hass.states.async_set("vacuum.valetudo_exaltedsneakydeer", "paused" if call.data["paused"] else "cleaning")
+        hass.states.async_set("vacuum.valetudo_exaltedsneakydeer", "paused")
 
-    hass.services.async_register("valetudo_vacuum_coordinator", "set_paused", set_paused)
+    hass.services.async_register("vacuum", "pause", pause)
     count = len(world.service.sent)
     await press(hass, "job.vacuum.main_floor", "pause")
-    assert paused == [{"entity_id": "vacuum.valetudo_exaltedsneakydeer", "paused": True}]
+    assert paused == [{"entity_id": "vacuum.valetudo_exaltedsneakydeer"}]
     # The state change and the confirmation collapse to one push per device, at priority 10, with the new phase.
     mine = sent(world, "hook-stephen-iphone", since=count)
     assert mine and mine[-1]["data"]["fenton_activity"]["phase"] == "paused" and mine[-1]["data"]["urgent"] is True
@@ -328,7 +328,21 @@ async def test_pause_and_resume_update_the_card(hass: HomeAssistant, world) -> N
 # -- Dismissals -------------------------------------------------------------------------------------------------------
 
 
-async def test_a_dismissed_card_stays_away_until_the_job_ends(hass: HomeAssistant, world) -> None:
+async def test_a_dismissal_from_a_user_with_one_device_showing_the_card(hass: HomeAssistant, world) -> None:
+    mobile_app_entry(hass, "hook-stephanie-s-plus-h", STEPHANIE, app_data=dict(LIVE_DATA))
+    await world.service.async_register_services()
+    start_fan(hass)
+    await settle(hass)
+    count = len(world.service.sent)
+    hass.bus.async_fire("fenton_live_activity_dismissed", {"tag": "job.fan.guest"}, context=Context(user_id=STEPHANIE))
+    await settle(hass)
+    hass.states.async_set("input_datetime.guest_bathroom_fan_timer_ends_at", "x", {"timestamp": time.time() + 3000})
+    await settle(hass)
+    assert {s["target"] for s in sent(world, since=count)} == {"hook-stephen-iphone", "hook-stephen-ipad"}
+
+
+async def test_a_dismissal_event_cannot_name_a_device(hass: HomeAssistant, world) -> None:
+    """A webhook id is a credential and events are recorded: the event carries none and one that does is not honoured."""
     start_fan(hass)
     await settle(hass)
     count = len(world.service.sent)
@@ -337,8 +351,8 @@ async def test_a_dismissed_card_stays_away_until_the_job_ends(hass: HomeAssistan
     await settle(hass)
     hass.states.async_set("input_datetime.guest_bathroom_fan_timer_ends_at", "x", {"timestamp": time.time() + 3000})
     await settle(hass)
-    # Only the iPad (which was not dismissed) hears about the new end.
-    assert {s["target"] for s in sent(world, since=count)} == {"hook-stephen-ipad"}
+    # The named device is ignored; with no way to tell which device it was, both of Stephen's stay dismissed.
+    assert sent(world, since=count) == []
 
 
 async def test_a_dismissal_without_a_device_goes_to_the_one_whose_token_core_dropped(hass: HomeAssistant, world,
@@ -376,7 +390,7 @@ def stuck(hass: HomeAssistant) -> None:
         "room_id": "kitchen", "phase": "cleaning"})
     hass.states.async_set("sensor.main_floor_vacuum_coordinator_kitchen_last_cleaned", "x", {"room_name": "Kitchen"})
     hass.states.async_set("sensor.main_floor_vacuum_status", "error", {"current_issue": {
-        "code": "navigation.stuck", "status": "active", "since": iso(time.time() - 30)}})
+        "code": "navigation.stuck", "raw": "Robot stuck", "reported_at": iso(time.time() - 30)}})
 
 
 PROBLEM = {"device": "main_floor", "code": "navigation.stuck", "title": "Main Floor Vacuum · Robot Stuck",
@@ -407,14 +421,15 @@ async def test_a_problem_is_a_card_for_people_with_s_plus_h_and_a_push_for_every
 
 
 async def test_done_completes_the_task_ends_the_card_everywhere_and_clears_the_fallback_push(hass: HomeAssistant,
-                                                                                            world) -> None:
+                                                                                            world, monkeypatch) -> None:
+    monkeypatch.setitem(entities.DONETICK_USERS, STEPHEN, 1)
     world.donetick.add("Main Floor Vacuum · Robot Stuck", 4217)
     stuck(hass)
     await hass.services.async_call("fenton_push", "problem", PROBLEM, blocking=True)
     await settle(hass)
     count = len(world.service.sent)
     await press(hass, "job.vacuum.main_floor", "done")
-    assert world.donetick.completed == [{"task_id": 4217, "user_id": STEPHEN}]
+    assert world.donetick.completed == [{"task_id": 4217, "completed_by": 1, "user_id": STEPHEN}]
     ends = sent(world, since=count)
     assert [s["message"] for s in ends] == ["clear_notification", "clear_notification"]
     assert world.phones.sent[-1] == {"message": "clear_notification", "data": {"tag": "vacuum-kitchen-error"}}
@@ -429,7 +444,7 @@ async def test_a_task_completed_elsewhere_ends_the_card_and_a_recovered_robot_ke
     await settle(hass)
     # The robot recovers and cleans on; the task is still open.
     hass.states.async_set("vacuum.valetudo_exaltedsneakydeer", "cleaning")
-    hass.states.async_set("sensor.main_floor_vacuum_status", "ok", {"current_issue": None})
+    hass.states.async_set("sensor.main_floor_vacuum_status", "ok", {"current_issue": {"status": "clear"}})
     await settle(hass)
     assert sent(world, "hook-stephen-iphone")[-1]["data"]["fenton_activity"]["phase"] == "problem"
     count = len(world.service.sent)
@@ -461,7 +476,7 @@ async def test_a_problem_without_a_task_has_no_done_and_ends_when_the_condition_
     hass.states.async_set("vacuum.valetudo_exaltedsneakydeer", "returning")
     hass.states.async_set("sensor.main_floor_vacuum_coordinator_current_room", "none", {})
     hass.states.async_set("sensor.main_floor_vacuum_status", "low", {"current_issue": {
-        "code": "power.low_battery", "status": "active", "since": iso(time.time())}})
+        "code": "power.low_battery", "raw": "Low battery", "reported_at": iso(time.time())}})
     await hass.services.async_call("fenton_push", "problem", {
         "device": "main_floor", "code": "power.low_battery", "title": "Main Floor Vacuum · Low battery",
         "message": "Heading home.", "tag": "vacuum-kitchen-error"}, blocking=True)
@@ -470,7 +485,7 @@ async def test_a_problem_without_a_task_has_no_done_and_ends_when_the_condition_
     assert [c["id"] for c in activity["controls"]] == [] and activity["problem"]["severity"] == "warning"
     assert "task_id" not in activity["problem"] and "live_alert" not in sent(world, "hook-stephen-iphone")[-1]["data"]
     count = len(world.service.sent)
-    hass.states.async_set("sensor.main_floor_vacuum_status", "ok", {"current_issue": None})
+    hass.states.async_set("sensor.main_floor_vacuum_status", "ok", {"current_issue": {"status": "clear"}})
     await settle(hass)
     assert [s["message"] for s in sent(world, since=count)] == ["clear_notification", "clear_notification"]
     assert world.phones.sent[-1] == {"message": "clear_notification", "data": {"tag": "vacuum-kitchen-error"}}

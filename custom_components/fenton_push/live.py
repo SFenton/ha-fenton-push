@@ -195,9 +195,10 @@ PROBLEM_ICONS = frozenset({"alert", "door", "dock", "edge", "brush", "battery", 
                            "question", "door_dish"})
 #: Keys the relay understands in a v2 block; anything else is dropped. ``pending`` is the app's alone, so it is never
 #: forwarded. ``stale_ts`` becomes ``aps.stale-date``.
-KEYS_V2 = frozenset({"v", "phase", "headline", "value", "progress", "controls", "problem", "url", "notice", "stale_ts"})
+KEYS_V2 = frozenset({"v", "phase", "headline", "detail", "value", "progress", "controls", "problem", "url", "notice", "stale_ts"})
 
 MAX_HEADLINE = 32
+MAX_DETAIL = 32
 MAX_VALUE_TEXT = 16
 MAX_PROBLEM = 40
 MAX_MESSAGE = 90
@@ -292,6 +293,8 @@ def state_v2(block: Any, notes: list[str]) -> tuple[dict[str, Any], int | None]:
     state: dict[str, Any] = {"v": STATE_VERSION_V2, "phase": phase}
     if headline := _text(block.get("headline"), MAX_HEADLINE):
         state["headline"] = headline
+    if detail := _text(block.get("detail"), MAX_DETAIL):
+        state["detail"] = detail
     state["value"] = _value_v2(block.get("value"), progress, notes)
     if progress is not None:
         state["progress"] = progress

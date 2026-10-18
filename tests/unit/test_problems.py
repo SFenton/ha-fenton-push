@@ -17,7 +17,6 @@ from fenton_push.problems import (
     kind_of,
     quote_message,
     slug,
-    time_chip,
 )
 
 ROBOT = ROBOTS["vacuum.main_floor"]
@@ -71,7 +70,7 @@ def test_the_table_matches_the_spec(code, severity, icon, problem, message, butt
     info = build(code)
     assert (info.severity, info.icon, info.problem, info.message) == (severity, icon, problem, message)
     assert [c.title for c in info.controls] == buttons
-    assert info.chips == ("Since 1:58 PM",) or info.chips == ("Since 2:58 PM",)
+    assert info.chips == ()
     assert info.task_id is None and "done" not in [c.id for c in info.controls]
 
 
@@ -127,18 +126,25 @@ def test_a_service_code_the_table_does_not_know_uses_the_automations_wording() -
     assert build("custom.thing", "oops", title="Salt low").message == 'The robot says "oops". Check it, then tap Resume.'
 
 
-def test_vacuum_only_needs_a_mode_select() -> None:
-    assert controls.problem_button("vacuum_only", ROBOTS["vacuum.music_room"], False) is None
+def test_vacuum_only_switches_the_mode_then_starts() -> None:
     assert controls.problem_button("resume", None, False) is None
     assert controls.problem_button("bogus", ROBOT, False) is None
-    vacuum_only = controls.problem_button("vacuum_only", ROBOT, True)
-    assert [c.service for c in vacuum_only.calls] == ["select_option", "set_paused"]
-    assert vacuum_only.calls[0].data == {"entity_id": "select.valetudo_exaltedsneakydeer_mode", "option": "vacuum"}
+    for robot, mode in (("vacuum.main_floor", "valetudo_exaltedsneakydeer"), ("vacuum.music_room", "valetudo_elatedusedram"),
+                        ("vacuum.theater_room", "valetudo_politefatherlykingfisher")):
+        vacuum_only = controls.problem_button("vacuum_only", ROBOTS[robot], True)
+        assert [(c.domain, c.service) for c in vacuum_only.calls] == [("select", "select_option"), ("vacuum", "start")]
+        assert vacuum_only.calls[0].data == {"entity_id": f"select.{mode}_mode", "option": "vacuum"}
 
 
-def test_problem_buttons_use_plain_vacuum_services_without_a_coordinator_session() -> None:
-    assert controls.problem_button("resume", ROBOT, False).calls[0].service == "start"
+def test_problem_buttons_resume_with_vacuum_start_and_dock_by_session() -> None:
+    for session in (True, False):
+        assert controls.problem_button("resume", ROBOT, session).calls[0].service == "start"
     assert controls.problem_button("dock", ROBOT, False).calls[0].service == "return_to_base"
+    cancel = controls.problem_button("dock", ROBOT, True).calls[0]
+    assert (cancel.domain, cancel.service, dict(cancel.data)) == ("valetudo_vacuum_coordinator", "cancel_session",
+                                                                 {"reason": "live_activity"})
+    # Only the Main Floor robot has a coordinator; the others dock by themselves.
+    assert controls.problem_button("dock", ROBOTS["vacuum.music_room"], True).calls[0].service == "return_to_base"
     assert controls.problem_button("try_again", ROBOT, True).calls[0].service == "return_to_base"
 
 
@@ -160,14 +166,10 @@ def test_code_for_raw(raw, code) -> None:
     assert code_for_raw(raw) == code
 
 
-def test_kinds_slugs_and_chips() -> None:
+def test_kinds_and_slugs() -> None:
     assert kind_of("navigation.stuck") == "table" and kind_of("vendor.unknown_error_3") == "numbered"
     assert kind_of("unmapped.x") == "unmapped" and kind_of("whatever") == "unmapped"
     assert slug("Wheel  tangled!") == "wheel_tangled" and len(slug("a" * 100)) == 40
-    assert time_chip(None, UTC) is None
-    assert time_chip(NOW, UTC) == "Since 3:00 PM"
-    assert time_chip(NOW - 15 * 3600 + 60, UTC) == "Since 12:01 AM"
-    assert time_chip(NOW - 3 * 3600, UTC) == "Since 12:00 PM"
     assert set(TABLE) == {row.code for row in ROWS}
 
 
