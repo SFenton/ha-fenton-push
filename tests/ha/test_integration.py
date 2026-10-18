@@ -18,6 +18,7 @@ from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.fenton_push.apns import APNsError
+from custom_components.fenton_push.entities import JOB_IDS
 from custom_components.fenton_push.const import (
     CONF_BUNDLE_ID,
     CONF_CRITICAL_ALERTS,
@@ -296,8 +297,26 @@ async def test_options_flow(hass: HomeAssistant, configured) -> None:
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], {CONF_CRITICAL_ALERTS: True, CONF_PUSH_BASE_URL: " http://127.0.0.1:8123 "})
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert configured.options == {CONF_CRITICAL_ALERTS: True, CONF_PUSH_BASE_URL: "http://127.0.0.1:8123"}
+    assert configured.options == {
+        CONF_CRITICAL_ALERTS: True, CONF_PUSH_BASE_URL: "http://127.0.0.1:8123", "live_jobs_enabled": True,
+        "live_jobs": list(JOB_IDS), "live_devices": [], "person_notify": "*_s_phone"}
     assert hass.data[DOMAIN][configured.entry_id].critical_alerts is True
+
+
+async def test_options_flow_offers_the_jobs_and_the_devices_with_cards(hass: HomeAssistant, configured) -> None:
+    mobile_app_entry(hass, "hook-stephen-s-plus-h", STEPHEN,
+                     app_data={"push_url": PUSH_URL, "push_token": "t", "start_live_activity_token": "ab" * 32})
+    result = await hass.config_entries.options.async_init(configured.entry_id)
+    schema = result["data_schema"].schema
+    devices = next(v for k, v in schema.items() if str(k) == "live_devices")
+    assert [o["value"] for o in devices.config["options"]] == ["hook-stephen-s-plus-h"]
+    jobs = next(v for k, v in schema.items() if str(k) == "live_jobs")
+    assert [o["value"] for o in jobs.config["options"]] == list(JOB_IDS)
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {
+        "live_jobs": ["fan.guest"], "live_devices": ["hook-stephen-s-plus-h"], "live_jobs_enabled": False,
+        "person_notify": " *_phone "})
+    assert configured.options["live_jobs"] == ["fan.guest"] and configured.options["live_devices"] == ["hook-stephen-s-plus-h"]
+    assert configured.options["live_jobs_enabled"] is False and configured.options["person_notify"] == "*_phone"
 
 
 async def test_unreadable_saved_key(hass: HomeAssistant) -> None:

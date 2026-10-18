@@ -11,6 +11,12 @@ CONF_BUNDLE_ID = "bundle_id"
 #: Options.
 CONF_CRITICAL_ALERTS = "critical_alerts"
 CONF_PUSH_BASE_URL = "push_base_url"
+#: Job cards (``live_jobs.py``): the master switch, which jobs run, which registrations get cards (empty: all with
+#: S+H), and the notify action that reaches a person's whole phone (``*`` stands for their first name).
+CONF_LIVE_JOBS_ENABLED = "live_jobs_enabled"
+CONF_LIVE_JOBS = "live_jobs"
+CONF_LIVE_DEVICES = "live_devices"
+CONF_PERSON_NOTIFY = "person_notify"
 
 DEFAULT_BUNDLE_ID = "com.sfenton.home"
 
@@ -31,3 +37,9 @@ API_CONFIG = "/api/fenton_push/config"
 API_PUSH = "/api/fenton_push/apns"
 
 MOBILE_APP = "mobile_app"
+
+#: Services and events of the job engine.
+SERVICE_PROBLEM = "problem"
+EVENT_ACTION = "fenton_live_activity_action"
+EVENT_DISMISSED = "fenton_live_activity_dismissed"
+SENSOR_JOBS = "sensor.fenton_live_jobs"

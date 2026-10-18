@@ -34,11 +34,63 @@
         "title": "Fenton Home Push options",
         "data": {
           "critical_alerts": "Send critical alerts",
-          "push_base_url": "Push address base URL"
+          "push_base_url": "Push address base URL",
+          "live_jobs_enabled": "Show job cards",
+          "live_jobs": "Jobs that get a card",
+          "live_devices": "Devices that get cards",
+          "person_notify": "Notify action for people without S+H"
         },
         "data_description": {
           "critical_alerts": "Turn on only after Apple grants the app the Critical Alerts entitlement. Until then, critical notifications arrive as time-sensitive.",
-          "push_base_url": "Where Home Assistant can reach itself, such as http://127.0.0.1:8123. Leave empty to use the internal URL. The app picks up a change the next time it opens."
+          "push_base_url": "Where Home Assistant can reach itself, such as http://127.0.0.1:8123. Leave empty to use the internal URL. The app picks up a change the next time it opens.",
+          "live_jobs_enabled": "Turn off to stop all Live Activity cards. Problems then go to everyone as ordinary notifications.",
+          "live_jobs": "Each job runs as its own Live Activity.",
+          "live_devices": "Leave empty for every device with Live Activities allowed.",
+          "person_notify": "The notify action that reaches a person's whole phone. Use * for their first name: *_s_phone is notify.stephen_s_phone for Stephen."
+        }
+      }
+    }
+  },
+  "services": {
+    "problem": {
+      "name": "Raise a device problem",
+      "description": "Shows a problem card on the Live Activities of people who have the app and sends the ordinary notification to everyone else.",
+      "fields": {
+        "device": {
+          "name": "Device",
+          "description": "The device with the problem, such as main_floor, music_room, theater_room or dishwasher."
+        },
+        "code": {
+          "name": "Code",
+          "description": "The problem code, such as navigation.stuck. Leave empty to work it out from the raw text."
+        },
+        "raw": {
+          "name": "Raw error text",
+          "description": "The robot's own error text, for unknown and unmapped errors."
+        },
+        "title": {
+          "name": "Notification title",
+          "description": "The title of the ordinary notification."
+        },
+        "message": {
+          "name": "Notification message",
+          "description": "The text of the ordinary notification."
+        },
+        "task_title": {
+          "name": "Donetick task title",
+          "description": "The Donetick task the card follows. Leave empty when there is no task."
+        },
+        "url": {
+          "name": "Link",
+          "description": "Where a tap on the notification goes."
+        },
+        "tag": {
+          "name": "Notification tag",
+          "description": "The tag of the ordinary notification, cleared when the card ends."
+        },
+        "data": {
+          "name": "Extra notification data",
+          "description": "More data for the ordinary notification."
         }
       }
     }

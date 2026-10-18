@@ -1,0 +1,25 @@
+{
+  "Simulator Target Bundle": "com.sfenton.home",
+  "aps": {
+    "timestamp": 1792249200,
+    "event": "update",
+    "content-state": {
+      "v": 2,
+      "phase": "done",
+      "detail": "Your side",
+      "value": {
+        "kind": "text",
+        "text": "Complete"
+      },
+      "progress": 1.0,
+      "controls": [],
+      "url": "/sfenton-react-dash/home?path=bedroom"
+    },
+    "stale-date": 1792251000,
+    "relevance-score": 10.0
+  },
+  "fenton": {
+    "v": 2,
+    "tag": "job.hot_flash"
+  }
+}

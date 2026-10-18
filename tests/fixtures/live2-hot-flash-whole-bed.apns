@@ -1,0 +1,43 @@
+{
+  "Simulator Target Bundle": "com.sfenton.home",
+  "aps": {
+    "timestamp": 1792249200,
+    "event": "start",
+    "content-state": {
+      "v": 2,
+      "phase": "running",
+      "detail": "Whole bed",
+      "value": {
+        "kind": "countdown",
+        "end_ts": 1792250060,
+        "start_ts": 1792249160
+      },
+      "controls": [
+        {
+          "id": "stop",
+          "title": "Stop"
+        }
+      ],
+      "url": "/sfenton-react-dash/home?path=bedroom"
+    },
+    "attributes-type": "HomeActivityAttributes",
+    "attributes": {
+      "tag": "job.hot_flash",
+      "title": "Hot Flash",
+      "kind": "hot_flash",
+      "symbol": "hot_flash",
+      "tint": "warm"
+    },
+    "alert": {
+      "title": "Hot Flash",
+      "body": "Hot Flash"
+    },
+    "input-push-token": 1,
+    "stale-date": 1792250660,
+    "relevance-score": 70.0
+  },
+  "fenton": {
+    "v": 2,
+    "tag": "job.hot_flash"
+  }
+}

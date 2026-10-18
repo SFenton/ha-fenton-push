@@ -7,6 +7,7 @@ receive a push right now" is exactly the registrations below.
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from typing import Any
 
@@ -56,6 +57,24 @@ def devices(hass: HomeAssistant, bundle_id: str) -> list[Device]:
     for entry in hass.config_entries.async_entries(MOBILE_APP):
         data = entry.data
         if data.get("app_id") != bundle_id or not _can_push(data.get("app_data") or {}):
+            continue
+        found.append(Device(webhook_id=data["webhook_id"], user_id=data.get("user_id", ""),
+                            name=data.get("device_name", ""), model=data.get("model", "")))
+    return found
+
+
+def live_devices(hass: HomeAssistant, bundle_id: str, only: Collection[str] | None = None) -> list[Device]:
+    """Fenton Home registrations that can show a Live Activity: the app handed over a push-to-start token.
+
+    ``only`` limits them to those webhook ids (the integration's "which registrations get cards" option).
+    """
+    found = []
+    for entry in hass.config_entries.async_entries(MOBILE_APP):
+        data = entry.data
+        app_data = data.get("app_data") or {}
+        if data.get("app_id") != bundle_id or not _can_push(app_data) or not app_data.get("start_live_activity_token"):
+            continue
+        if only and data["webhook_id"] not in only:
             continue
         found.append(Device(webhook_id=data["webhook_id"], user_id=data.get("user_id", ""),
                             name=data.get("device_name", ""), model=data.get("model", "")))

@@ -1,0 +1,37 @@
+{
+  "Simulator Target Bundle": "com.sfenton.home",
+  "aps": {
+    "timestamp": 1792249200,
+    "event": "start",
+    "content-state": {
+      "v": 2,
+      "phase": "running",
+      "value": {
+        "kind": "countup",
+        "start_ts": 1792248480
+      },
+      "progress": 1.0,
+      "controls": [],
+      "url": "/sfenton-react-dash/home?path=laundry"
+    },
+    "attributes-type": "HomeActivityAttributes",
+    "attributes": {
+      "tag": "job.washer",
+      "title": "Washing Machine",
+      "kind": "washer",
+      "symbol": "washer",
+      "tint": "water"
+    },
+    "alert": {
+      "title": "Washing Machine",
+      "body": "Washing Machine"
+    },
+    "input-push-token": 1,
+    "stale-date": 1792251000,
+    "relevance-score": 55.0
+  },
+  "fenton": {
+    "v": 2,
+    "tag": "job.washer"
+  }
+}

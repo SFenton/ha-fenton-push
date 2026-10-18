@@ -12,10 +12,12 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
+import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME, EVENT_HOMEASSISTANT_STARTED, Platform
-from homeassistant.core import CoreState, Event, HomeAssistant
+from homeassistant.core import CoreState, Event, HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryError
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import discovery
 from homeassistant.helpers.httpx_client import create_async_httpx_client
 from homeassistant.util.ssl import SSL_ALPN_HTTP11_HTTP2
@@ -30,7 +32,10 @@ from .const import (
     DEFAULT_BUNDLE_ID,
     DOMAIN,
     NOTIFY_SERVICE_NAME,
+    SERVICE_PROBLEM,
 )
+from .live_jobs import LiveJobs
+from .payload import Timestamps
 from .views import DailyCounter, register_views
 
 _LOGGER = logging.getLogger(__name__)
@@ -44,10 +49,27 @@ class PushRuntime:
     bundle_id: str
     options: dict[str, Any]
     counter: DailyCounter = field(default_factory=DailyCounter)
+    #: Strictly increasing ``aps.timestamp`` per device and activity.
+    timestamps: Timestamps = field(default_factory=Timestamps)
+    #: The job engine (``live_jobs.py``), started with the entry.
+    live: LiveJobs | None = None
 
     @property
     def critical_alerts(self) -> bool:
         return bool(self.options.get(CONF_CRITICAL_ALERTS, False))
+
+
+PROBLEM_SCHEMA = vol.Schema({
+    vol.Required("device"): cv.string,
+    vol.Optional("code"): cv.string,
+    vol.Optional("raw"): cv.string,
+    vol.Optional("title"): cv.string,
+    vol.Optional("message"): cv.string,
+    vol.Optional("task_title"): cv.string,
+    vol.Optional("url"): cv.string,
+    vol.Optional("tag"): cv.string,
+    vol.Optional("data"): dict,
+})
 
 
 def credentials(data: dict[str, Any]) -> Credentials:
@@ -84,6 +106,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.async_create_task(_refresh_targets())
     else:
         entry.async_on_unload(hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _refresh_targets))
+    runtime.live = LiveJobs(hass, runtime)
+    await runtime.live.async_start()
+
+    async def _problem(call: ServiceCall) -> None:
+        if (live := runtime.live) is not None:
+            await live.async_problem(dict(call.data))
+
+    hass.services.async_register(DOMAIN, SERVICE_PROBLEM, _problem, schema=PROBLEM_SCHEMA)
     entry.async_on_unload(entry.add_update_listener(_options_updated))
     return True
 
@@ -92,11 +122,16 @@ async def _options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Critical alerts and the push base URL are read live; no reload needed."""
     if runtime := hass.data.get(DOMAIN, {}).get(entry.entry_id):
         runtime.options = dict(entry.options)
+        if runtime.live is not None:
+            runtime.live.request()
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Stop forwarding (the push endpoint answers 503 once no entry is loaded) and drop the person targets."""
-    hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+    runtime = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+    if runtime is not None and runtime.live is not None:
+        await runtime.live.async_stop()
+    hass.services.async_remove(DOMAIN, SERVICE_PROBLEM)
     try:
         from homeassistant.components.notify.legacy import NOTIFY_SERVICES  # noqa: PLC0415
     except ImportError:  # pragma: no cover - layout changed upstream

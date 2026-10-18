@@ -1,4 +1,4 @@
-# Fenton Home Push: app contract (v1; Live Activities v2, section 6)
+# Fenton Home Push: app contract (v1; Live Activities v2, sections 6 and 7)
 
 How the Fenton Home iOS app (bundle `com.sfenton.home`) and this integration talk. Home Assistant's own
 `mobile_app` integration sits in the middle and is used unchanged.
@@ -200,3 +200,93 @@ and refuses one with no alert (`UNErrorDomain 1401, Notification has no user vis
 simulator), so nothing reaches ActivityKit. The app decodes them in its unit tests instead
 (`tools/push_fixtures/live-*.apns` in the app repository). Apple's Push Notifications Console and a real device
 are the only end-to-end check.
+
+## 7. One Live Activity per job (content state v2)
+
+Specified by `Fenton-HASS-Native/.agents/platforms/apple/live-activities-per-job.md` (sections 3, 5, 7 and 9), which
+supersedes the aggregate Home activity of section 6. The transport in section 6 is unchanged (`mobile_app` posts with
+`live_activity_token` and `data.event`); what changes is the content, the attributes and the stamping. The Home
+activity's content state (v1) is still accepted for one release.
+
+The `fenton_push` job engine (`live_jobs.py`) sends one activity per job through core's
+`notify.mobile_app_<device>` with `data: {tag: "job.<id>", live_update: true, fenton_activity: {...}, fenton_attributes: {...},
+relevance_score, live_alert?, urgent?}`. Core owns the tokens and chooses start, update or end; this integration maps the
+result as follows.
+
+### Tags
+
+`job.<id>`: `job.fan.guest`, `job.fan.master`, `job.dishwasher`, `job.dryer`, `job.washer`, `job.vacuum.main_floor`,
+`job.vacuum.music_room`, `job.vacuum.theater_room`, `job.hot_flash`. A device's problem rides on its own tag.
+
+### Attributes (sent on a start)
+
+`{tag, title, kind, symbol, tint}`. `title` is the notification title (the device's name, capped at 32 characters);
+`kind`, `symbol` and `tint` come from `data.fenton_attributes` (each at most 40 characters; anything else in that
+object is ignored), and default to `kind: "generic"` with the app's own defaults when absent. The attributes type is
+still `HomeActivityAttributes`.
+
+### Content state
+
+A `data.fenton_activity` block with `"v": 2` becomes the `content-state` after validation. Keys the relay understands
+(anything else is dropped with a note in the log; `pending` is the app's alone and is never forwarded):
+
+| Key | Rule |
+|---|---|
+| `v` | `2` |
+| `phase` | `running`, `paused`, `waiting`, `problem` or `done` (anything else is refused) |
+| `headline` | optional, 32 characters |
+| `detail` | optional, 32 characters: a short line under the title (hot flash: "Your side", "Stephen's side", "Whole bed", plus " · by Steph" or " · by Home" when it fits) |
+| `value` | `{kind: countdown, end_ts, start_ts?}`, `{kind: countup, start_ts, paused_elapsed_s?}`, `{kind: percent}` (needs `progress`) or `{kind: text, text}` (16 characters); `estimated: true` optional |
+| `progress` | optional, 0 to 1 |
+| `controls` | at most 2 `{id, title, role?}`; at most 3 when `phase` is `problem`. Titles 20 characters. The first control is primary; `role: "secondary"` is kept on the others |
+| `problem` | present exactly when `phase` is `problem`: `{severity: critical\|warning, code, icon, problem (40), message (90), chips (at most 1, 20 characters), task_id?}`. An unknown `icon` reads `question` |
+| `url` | 200 characters, no token |
+| `notice` | optional, 60 characters: shown in place of the value for that one update ("Couldn't stop. Try again.") |
+| `stale_ts` | Unix seconds; becomes `aps.stale-date`, not part of the state |
+
+Times are Unix seconds as numbers. A structurally wrong block is refused with `invalid_activity`; the whole push stays
+under 4 KB (`payload_too_large` otherwise). Without `stale_ts` the stale date is ten minutes after a countdown ends, else
+half an hour from now. A `clear_notification` end of a per-job activity carries the stub
+`{"v": 2, "phase": "done", "value": {"kind": "text", "text": "Ended"}, "controls": []}` and `dismissal-date` = now.
+
+### Events
+
+| Event | Difference from section 6 |
+|---|---|
+| `start` | `attributes` as above. `data.live_alert` adds `sound: "default"` to the start (a critical problem that begins the card); without it the start is silent |
+| `update` | unchanged: `live_alert` adds an alert and the default sound |
+| `end` | unchanged |
+
+`relevance_score` is passed through as `relevance-score` unchanged (the engine sends 100, 90, 80 to 50, 70, 55 and 10).
+
+### Timestamps
+
+`aps.timestamp` is `max(ceil(now), last + 1)` per device and tag, so a push is always newer than the app's optimistic
+write (`floor(now)`) and two pushes for one activity never tie. The sequence is held in memory; a restart resets it to
+the clock.
+
+### Dead tokens
+
+Apple answers 410 to a push for an activity that has ended. Core keeps the stored token and turns every later start for
+that tag into an update, so the tag could not start again until the token expired (8 hours). On a 410 for a Live Activity
+push the relay:
+
+1. removes the tag's token through core's `mobile_app.live_activity.store.remove_live_activity_token` (guarded: the
+   Home Assistant version must be 2026.7 or later and the function must still take `(hass, webhook_id, tag)`; otherwise
+   it logs once and carries on);
+2. for an `end`, answers 201 (the activity is already gone);
+3. for an `update`, retries once as a start with the registration's `start_live_activity_token` and answers 201 when
+   that succeeds; otherwise it answers with the 410 as before.
+
+### Fixtures
+
+`tests/fixtures/live2-*.apns` are the engine's real output, run through the relay at a fixed time. Regenerate with
+`python tests/fixtures/build.py`. The app's repository mirrors them in `tools/push_fixtures/`.
+
+### Events from the phone and services
+
+| Name | Direction | Data |
+|---|---|---|
+| `fenton_live_activity_action` | phone to engine (registration webhook `fire_event`) | `{tag, job, control}`; the event's user comes from the registration |
+| `fenton_live_activity_dismissed` | phone to engine | `{tag}`; a webhook id is a credential and events are recorded, so none is sent. With several devices showing the tag the engine narrows to the one whose token core just dropped |
+| `fenton_push.problem` | automation to engine | `{device, code?, raw?, title?, message?, task_title?, url?, tag?, data?}` |

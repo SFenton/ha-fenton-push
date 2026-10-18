@@ -1,0 +1,21 @@
+{
+  "Simulator Target Bundle": "com.sfenton.home",
+  "aps": {
+    "timestamp": 1792249200,
+    "event": "end",
+    "content-state": {
+      "v": 2,
+      "phase": "done",
+      "value": {
+        "kind": "text",
+        "text": "Ended"
+      },
+      "controls": []
+    },
+    "dismissal-date": 1792249200
+  },
+  "fenton": {
+    "v": 2,
+    "tag": "job.fan.guest"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "Simulator Target Bundle": "com.sfenton.home",
+  "aps": {
+    "timestamp": 1792249200,
+    "event": "update",
+    "content-state": {
+      "v": 2,
+      "phase": "running",
+      "detail": "Your side",
+      "value": {
+        "kind": "countdown",
+        "end_ts": 1792250000,
+        "start_ts": 1792249100
+      },
+      "controls": [
+        {
+          "id": "stop",
+          "title": "Stop"
+        }
+      ],
+      "url": "/sfenton-react-dash/home?path=bedroom"
+    },
+    "stale-date": 1792250600,
+    "relevance-score": 70.0
+  },
+  "fenton": {
+    "v": 2,
+    "tag": "job.hot_flash"
+  }
+}
