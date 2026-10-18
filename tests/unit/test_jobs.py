@@ -13,7 +13,6 @@ from fenton_push.jobs import (
     derive,
     hot_flash_audience,
     note_hot_flash,
-    note_sessions,
     relevance_countdown,
     signals,
 )
@@ -136,11 +135,18 @@ def test_laundry_counts_up_from_five_minutes_before_the_helper_turned_on(job_id,
 # -- Vacuums ----------------------------------------------------------------------------------------------------------
 
 
-def test_main_floor_room_headline_and_count_up() -> None:
+def test_main_floor_room_headline_has_no_time_and_no_ring() -> None:
     job = jobs(sc.main_floor())["vacuum.main_floor"]
-    assert job.title == "Main Floor Vacuum" and job.headline == "Cleaning Kitchen"
-    assert job.value == {"kind": "countup", "start_ts": NOW - 900} and job.session_key == "room:kitchen"
-    assert [c.id for c in job.controls] == ["pause", "dock"] and job.progress is None, "a count-up has no ring progress"
+    assert job.title == "Main Floor Vacuum" and job.headline == "Cleaning Kitchen" and job.short == "Kitchen"
+    assert job.value is None and job.progress is None and job.session_key == "room:kitchen"
+    assert [c.id for c in job.controls] == ["pause", "dock"]
+
+
+def test_short_is_the_room_cut_to_ten_characters() -> None:
+    snapshot = sc.main_floor(room_id="living_room")
+    assert jobs(snapshot)["vacuum.main_floor"].short == "Living Roo"
+    assert jobs(sc.main_floor(room_id="hall").with_(sensor__main_floor_vacuum_coordinator_hall_last_cleaned=(
+        "x", {"room_name": "Hall"})))["vacuum.main_floor"].short == "Hall"
 
 
 @pytest.mark.parametrize(("mode", "verb"), [("vacuum", "Vacuuming"), ("mop", "Mopping"), ("vacuum_and_mop", "Cleaning")])
@@ -169,10 +175,10 @@ def test_pause_and_resume_are_vacuum_services_and_dock_cancels_the_coordinators_
     assert (manual_dock.calls[0].domain, manual_dock.calls[0].service) == ("vacuum", "return_to_base")
 
 
-def test_paused_room_freezes_the_time_and_offers_resume() -> None:
+def test_paused_room_says_paused_and_offers_resume() -> None:
     job = jobs(sc.main_floor("paused", changed=NOW - 300))["vacuum.main_floor"]
-    assert job.phase == "paused" and job.value == {"kind": "countup", "start_ts": NOW - 900, "paused_elapsed_s": 600}
-    assert job.headline == "Paused in Kitchen"
+    assert job.phase == "paused" and job.value is None and job.progress is None
+    assert job.headline == "Paused in Kitchen" and job.short == "Paused"
     resume = job.controls[0]
     assert resume.id == "resume" and resume.calls[0].service == "start" and resume.outcome == "update"
 
@@ -189,18 +195,19 @@ def test_resumed_cleaning_counts() -> None:
     assert "vacuum.main_floor" not in jobs(sc.main_floor(phase="travelling"))
 
 
-@pytest.mark.parametrize(("flag", "segment", "headline"), [
-    ("segment", "Hall", "Vacuuming Hall"),
-    ("segment", None, "Vacuuming"),
-    ("zone", None, "Cleaning Music Room area"),
-    ("spot", None, "Spot cleaning"),
-    ("none", None, "Cleaning Music Room"),
-    ("resumable", None, "Cleaning Music Room"),
+@pytest.mark.parametrize(("flag", "segment", "headline", "short"), [
+    ("segment", "Hall", "Vacuuming Hall", "Hall"),
+    ("segment", "Master Bathroom", "Vacuuming Master Bathroom", "Master Bat"),
+    ("segment", None, "Vacuuming", "Cleaning"),
+    ("zone", None, "Cleaning Music Room area", "Area"),
+    ("spot", None, "Spot cleaning", "Spot"),
+    ("none", None, "Cleaning Music Room", "Cleaning"),
+    ("resumable", None, "Cleaning Music Room", "Cleaning"),
 ])
-def test_manual_runs_name_what_the_status_flag_says(flag, segment, headline) -> None:
+def test_manual_runs_name_what_the_status_flag_says(flag, segment, headline, short) -> None:
     job = jobs(sc.manual_run("music_room", flag=flag, segment=segment))["vacuum.music_room"]
-    assert job.headline == headline
-    assert job.value == {"kind": "countup", "start_ts": NOW - 300}
+    assert job.headline == headline and job.short == short
+    assert job.value is None and job.progress is None
     # Plain vacuum services, no coordinator.
     assert job.controls[0].calls[0].domain == "vacuum" and job.controls[0].calls[0].service == "pause"
     assert job.controls[0].calls[0].data == {"entity_id": "vacuum.valetudo_elatedusedram"}
@@ -218,18 +225,12 @@ def test_each_robot_reads_its_own_entities(robot, entity, segment_sensor) -> Non
     assert entities.ROBOTS[f"vacuum.{robot}"].segment_sensor == segment_sensor
 
 
-def test_manual_run_resume_uses_vacuum_start_and_keeps_its_start_across_a_pause() -> None:
-    memory = Memory()
-    running = jobs(sc.manual_run("music_room", flag="spot"), memory=memory)["vacuum.music_room"]
-    note_sessions(memory, [running])
-    paused = jobs(sc.manual_run("music_room", flag="spot", vac="paused").with_(
-        vacuum__valetudo_elatedusedram=("paused", {}, NOW - 60)), memory=memory)["vacuum.music_room"]
-    assert paused.value == {"kind": "countup", "start_ts": NOW - 300, "paused_elapsed_s": 240}
-    assert paused.controls[0].calls[0].service == "start" and paused.headline == "Paused"
-    # A different segment is a new session and starts its own timer.
-    note_sessions(memory, [paused])
-    other = jobs(sc.manual_run("music_room", flag="segment", segment="Hall"), memory=memory)["vacuum.music_room"]
-    assert other.session_key == "segment:Hall" and other.value["start_ts"] == NOW - 300
+def test_a_paused_manual_run_resumes_with_vacuum_start() -> None:
+    paused = jobs(sc.manual_run("music_room", flag="spot", vac="paused"))["vacuum.music_room"]
+    assert paused.value is None and paused.controls[0].calls[0].service == "start"
+    assert paused.headline == "Paused" and paused.short == "Paused"
+    other = jobs(sc.manual_run("music_room", flag="segment", segment="Hall"))["vacuum.music_room"]
+    assert other.session_key == "segment:Hall" and paused.session_key == "spot:"
 
 
 @pytest.mark.parametrize("vac", ["returning", "docked", "idle", "error"])
@@ -242,14 +243,6 @@ def test_a_coordinator_robot_between_rooms_does_not_look_like_a_manual_run() -> 
     assert "vacuum.main_floor" not in jobs(snapshot)
     manual = sc.main_floor("cleaning", room_id="", phase="idle", auto=False)
     assert jobs(manual)["vacuum.main_floor"].headline == "Cleaning Main Floor"
-
-
-def test_note_sessions_forgets_runs_that_are_gone() -> None:
-    memory = Memory()
-    note_sessions(memory, jobs(sc.manual_run("music_room", flag="spot"), memory=memory).values())
-    assert "vacuum.music_room" in memory.session_start
-    note_sessions(memory, [])
-    assert memory.session_start == {}
 
 
 # -- Problem signals --------------------------------------------------------------------------------------------------
@@ -518,3 +511,11 @@ def test_hot_flash_links_to_the_side_or_the_bedroom_for_the_whole_bed() -> None:
     assert both[sc.STEPHEN].url == dash
     done, _ = cards(sc.hot_flash("restore_pending", "idle"))
     assert done[sc.STEPHEN].url == dash + "#stephens-bed"
+
+
+def test_only_vacuum_cards_carry_short() -> None:
+    everything = sc.fan("guest").with_(**{"sensor__dishwasher_operation_state": ("run", {}, NOW - 100),
+                                          "sensor__dishwasher_program_finish_time": sc.iso(NOW + 900),
+                                          "input_boolean__dryer_started_helper": ("on", {}, NOW - 100)})
+    assert all(j.short is None for j in derive(everything, NOW, sc.ctx()))
+    assert all(j.short is None for j in derive(sc.hot_flash("holding", "idle"), NOW, sc.ctx()))

@@ -156,6 +156,19 @@ def test_detail_is_a_content_state_key() -> None:
     assert len(state_v2({**BLOCK, "detail": "d" * 50}, [])[0]["detail"]) == 32
 
 
+def test_short_is_a_content_state_key_and_value_is_optional() -> None:
+    block = {k: v for k, v in BLOCK.items() if k not in ("value", "progress")}
+    state, _ = state_v2({**block, "short": "Kitchen"}, [])
+    assert state["short"] == "Kitchen" and "value" not in state and "progress" not in state
+    assert "short" not in state_v2({**block, "short": "  "}, [])[0] and "short" not in state_v2(block, [])[0]
+    assert state_v2({**block, "short": "Master Bathroom"}, [])[0]["short"] == "Master Ba…"
+    request = live({**block, "stale_ts": None})
+    assert request.payload["aps"]["stale-date"] == NOW + 1800, "no value, no countdown: half an hour"
+    # A value that is there is still validated; a percent still needs its progress.
+    with pytest.raises(PayloadError):
+        live({**block, "value": {"kind": "percent"}})
+
+
 def test_strings_are_capped() -> None:
     state, _ = state_v2({**BLOCK, "headline": "h" * 50, "notice": "n" * 90,
                          "controls": [{"id": "i" * 60, "title": "t" * 60}]}, [])

@@ -91,10 +91,12 @@ class JobState:
     symbol: str
     tint: str
     phase: str  # running | paused | waiting | done | problem
-    value: Mapping[str, Any]
+    value: Mapping[str, Any] | None
     headline: str | None = None
     #: A short line under the title (hot flash: whose side, and who started it).
     detail: str | None = None
+    #: A word or two for the compact island when the card has no time (vacuums), at most 10 characters.
+    short: str | None = None
     progress: float | None = None
     controls: tuple[Control, ...] = ()
     url: str | None = None

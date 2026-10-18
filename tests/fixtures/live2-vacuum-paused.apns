@@ -7,11 +7,7 @@
       "v": 2,
       "phase": "paused",
       "headline": "Paused in Kitchen",
-      "value": {
-        "kind": "countup",
-        "start_ts": 1792248300,
-        "paused_elapsed_s": 300
-      },
+      "short": "Paused",
       "controls": [
         {
           "id": "resume",

@@ -6,6 +6,7 @@
     "content-state": {
       "v": 2,
       "phase": "problem",
+      "short": "Paused",
       "value": {
         "kind": "text",
         "text": "Attention"

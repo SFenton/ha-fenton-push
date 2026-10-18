@@ -201,9 +201,20 @@ def test_pausing_and_resuming_updates_the_same_card() -> None:
     engine = Engine()
     run(engine, sc.main_floor())
     (paused,) = sc.pushes(run(engine, sc.main_floor("paused", changed=NOW + 5), 5))
-    assert paused.content["phase"] == "paused" and paused.content["value"]["paused_elapsed_s"] == 905 - 0 - 900 + 0 or True
+    assert paused.content["phase"] == "paused" and paused.content["headline"] == "Paused in Kitchen"
+    assert paused.content["short"] == "Paused"
     (resumed,) = sc.pushes(run(engine, sc.main_floor("cleaning"), 20))
-    assert resumed.content["phase"] == "running" and not resumed.first
+    assert resumed.content["phase"] == "running" and not resumed.first and resumed.content["short"] == "Kitchen"
+
+
+def test_a_vacuum_card_has_no_value_and_no_progress_but_a_short_word() -> None:
+    (push,) = sc.pushes(run(Engine(), sc.main_floor()))
+    assert "value" not in push.content and "progress" not in push.content
+    assert push.content["headline"] == "Cleaning Kitchen" and push.content["short"] == "Kitchen"
+    assert push.stale_ts == NOW + 1800
+    # A problem that rides on a vacuum tag is the usual problem card, with its text value.
+    (problem,) = sc.pushes(run(Engine(), sc.main_floor_issue("navigation.stuck")))
+    assert problem.content["value"] == {"kind": "text", "text": "Needs help"} and "short" not in problem.content
 
 
 # -- Restart at 7 h 45 -----------------------------------------------------------------------------------------------

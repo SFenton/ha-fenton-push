@@ -7,10 +7,7 @@
       "v": 2,
       "phase": "running",
       "headline": "Cleaning Kitchen",
-      "value": {
-        "kind": "countup",
-        "start_ts": 1792248300
-      },
+      "short": "Kitchen",
       "controls": [
         {
           "id": "pause",
