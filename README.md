@@ -112,3 +112,7 @@ button, and the notification is cleared when it ends. A problem with no task end
 ## Development
 
 `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests/unit` (no Home Assistant needed; the job engine, adapters, problems and relay are all unit-tested on recorded state snapshots in `tests/scenarios.py`); CI also runs `tests/ha` with `pytest-homeassistant-custom-component`, plus HACS and hassfest validation. `tests/fixtures/*.apns` are real payloads for `xcrun simctl push`; regenerate them with `python tests/fixtures/build.py`.
+
+## App icon badge
+
+Every alert push to a resident's device carries `aps.badge`: the same number as Fenton Home's Profile button (the person's overdue DoneTick chores plus locally expired EverShelf items, food held back in Vacation Mode). An automation's own `data.push.badge` wins; other users get none.

@@ -18,7 +18,6 @@ from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.fenton_push.apns import APNsError
-from custom_components.fenton_push.entities import JOB_IDS
 from custom_components.fenton_push.const import (
     CONF_BUNDLE_ID,
     CONF_CRITICAL_ALERTS,
@@ -28,6 +27,7 @@ from custom_components.fenton_push.const import (
     CONF_TEAM_ID,
     DOMAIN,
 )
+from custom_components.fenton_push.entities import JOB_IDS
 
 from .. import samples
 
@@ -324,3 +324,19 @@ async def test_unreadable_saved_key(hass: HomeAssistant) -> None:
     entry.add_to_hass(hass)
     assert not await hass.config_entries.async_setup(entry.entry_id)
     assert entry.state is config_entries.ConfigEntryState.SETUP_ERROR
+
+
+async def test_push_carries_the_icon_badge(hass: HomeAssistant, configured, hass_client_no_auth) -> None:
+    """A resident's alert gets aps.badge; an automation's own push.badge wins; non-residents get none."""
+    resident = "64089b5683944c39b4f944c8f76830b0"
+    mobile_app_entry(hass, "hook-resident", resident)
+    hass.states.async_set("todo.stephen_s_past_due_with_unassigned", "3")
+    client = await hass_client_no_auth()
+    with patch(f"{CLIENT}.send", AsyncMock(return_value=None)) as send:
+        await client.post("/api/fenton_push/apns", json=body("hook-resident", token="tok-hook-resident"))
+        sample = body("hook-resident", token="tok-hook-resident")
+        sample["data"] = {**sample.get("data", {}), "push": {"badge": 9}}
+        await client.post("/api/fenton_push/apns", json=sample)
+        await client.post("/api/fenton_push/apns", json=body())
+    first, second, third = (call.args[1].payload["aps"] for call in send.await_args_list)
+    assert first["badge"] == 3 and second["badge"] == 9 and "badge" not in third
