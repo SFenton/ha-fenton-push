@@ -22,12 +22,15 @@ from typing import TYPE_CHECKING, Any
 from aiohttp import web
 from homeassistant.components.http import KEY_HASS, HomeAssistantView
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
 from homeassistant.helpers.network import NoURLAvailableError, get_url
 
 from . import recovery
 from .apns import ENVIRONMENTS, APNsError
 from .const import API_CONFIG, API_PUSH, APP_DATA_ENVIRONMENT, CONF_PUSH_BASE_URL, DAILY_LIMIT, DOMAIN
+from .badge import ENTITY_IDS, badge_count
 from .payload import PayloadError, build
+from .snapshot import States
 from .targets import registration
 
 if TYPE_CHECKING:
@@ -146,6 +149,13 @@ class PushView(HomeAssistantView):
         except PayloadError as err:
             counter.errors[webhook_id] += 1
             return _message(str(err), HTTPStatus.BAD_REQUEST)
+        aps = apns_request.payload.get("aps") if apns_request.push_type == "alert" else None
+        if isinstance(aps, dict) and "badge" not in aps:
+            # The icon badge follows the Profile button's count; an automation's own ``push.badge`` wins.
+            count = badge_count(str(entry.get("user_id") or ""), States.from_hass(hass, ENTITY_IDS),
+                                dt_util.now().date())
+            if count is not None:
+                aps["badge"] = count
         for note in apns_request.notes:
             _LOGGER.debug("%s: %s", entry.get("device_name"), note)
         if apns_request.dropped:
