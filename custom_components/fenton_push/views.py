@@ -22,13 +22,20 @@ from typing import TYPE_CHECKING, Any
 from aiohttp import web
 from homeassistant.components.http import KEY_HASS, HomeAssistantView
 from homeassistant.core import HomeAssistant
-from homeassistant.util import dt as dt_util
 from homeassistant.helpers.network import NoURLAvailableError, get_url
+from homeassistant.util import dt as dt_util
 
 from . import recovery
 from .apns import ENVIRONMENTS, APNsError
-from .const import API_CONFIG, API_PUSH, APP_DATA_ENVIRONMENT, CONF_PUSH_BASE_URL, DAILY_LIMIT, DOMAIN
 from .badge import ENTITY_IDS, badge_count
+from .const import (
+    API_CONFIG,
+    API_PUSH,
+    APP_DATA_ENVIRONMENT,
+    CONF_PUSH_BASE_URL,
+    DAILY_LIMIT,
+    DOMAIN,
+)
 from .payload import PayloadError, build
 from .snapshot import States
 from .targets import registration
@@ -168,10 +175,10 @@ class PushView(HomeAssistantView):
         try:
             await runtime.client.send(device_token, apns_request, environment)
         except APNsError as err:
-            if apns_request.push_type == "liveactivity" and err.status == 410:
-                if (answer := await self._recover_activity(hass, runtime, webhook_id, tag, body, app_data,
-                                                           environment)) is not None:
-                    return answer
+            if (apns_request.push_type == "liveactivity" and err.status == 410
+                    and (answer := await self._recover_activity(hass, runtime, webhook_id, tag, body, app_data,
+                                                                environment)) is not None):
+                return answer
             if err.reason == "BadDeviceToken":
                 # A token from the other APNs environment (an Xcode build reporting production, or the reverse).
                 other = "sandbox" if environment == "production" else "production"

@@ -18,7 +18,6 @@ from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.fenton_push.apns import APNsError
-from custom_components.fenton_push.entities import JOB_IDS
 from custom_components.fenton_push.const import (
     CONF_BUNDLE_ID,
     CONF_CRITICAL_ALERTS,
@@ -28,6 +27,7 @@ from custom_components.fenton_push.const import (
     CONF_TEAM_ID,
     DOMAIN,
 )
+from custom_components.fenton_push.entities import JOB_IDS
 
 from .. import samples
 
