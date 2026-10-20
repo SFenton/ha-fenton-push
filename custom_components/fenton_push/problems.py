@@ -106,6 +106,7 @@ _KEYWORDS = (
     ("low battery", "power.low_battery"),
     ("return to dock", "navigation.dock_unreachable"),
     ("reach the dock", "navigation.dock_unreachable"),
+    ("reach target", "navigation.target_unreachable"),
     ("stuck", "navigation.stuck"),
 )
 

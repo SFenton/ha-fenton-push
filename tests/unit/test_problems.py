@@ -158,6 +158,7 @@ def test_problem_buttons_resume_with_vacuum_start_and_dock_by_session() -> None:
     ("Dust bag missing", "dock.dustbag_blocked"),
     ("Low battery", "power.low_battery"),
     ("Robot is stuck", "navigation.stuck"),
+    ("Cannot reach target", "navigation.target_unreachable"),
     ("Wheel tangled in a cable", "unmapped.wheel_tangled_in_a_cable"),
     ("!!!", "unmapped.error"),
     ("No error", None), ("", None), (None, None), ("unavailable", None),
